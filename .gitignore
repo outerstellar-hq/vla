@@ -1,0 +1,10 @@
+# Build output
+vla
+vla.exe
+*.exe
+
+# Local config (contains API key)
+config.json
+
+# Go workspace cruft
+vendor/
