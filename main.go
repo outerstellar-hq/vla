@@ -47,7 +47,7 @@ func main() {
 	}
 
 	reg := tools.NewRegistry()
-	if err := app.RegisterBuiltins(reg); err != nil {
+	if err := app.RegisterBuiltins(reg, sess.CWD()); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: register tools: %v\n", err)
 		os.Exit(1)
 	}

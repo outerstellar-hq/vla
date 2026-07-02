@@ -52,13 +52,16 @@ func TestResolveConfigPath_HomeFallback(t *testing.T) {
 
 func TestRegisterBuiltins_RegistersAll(t *testing.T) {
 	r := tools.NewRegistry()
-	if err := RegisterBuiltins(r); err != nil {
+	if err := RegisterBuiltins(r, t.TempDir()); err != nil {
 		t.Fatalf("RegisterBuiltins: %v", err)
 	}
 
 	// Every tool listed in RegisterBuiltins must be findable by name.
 	// Update this list when new builtins are added.
-	wantNames := []string{"echo"}
+	wantNames := []string{
+		"echo", "read_file", "write_file", "update_file", "delete_file",
+		"list_files", "git_status", "git_diff", "git_commit",
+	}
 	for _, name := range wantNames {
 		if _, ok := r.Get(name); !ok {
 			t.Errorf("expected tool %q registered, not found", name)
@@ -74,7 +77,7 @@ func TestRegisterBuiltins_RegistersAll(t *testing.T) {
 func TestRegisterBuiltins_EchoSchemaValid(t *testing.T) {
 	// The echo tool's schema must have the shape the OpenAI API expects.
 	r := tools.NewRegistry()
-	_ = RegisterBuiltins(r)
+	_ = RegisterBuiltins(r, t.TempDir())
 
 	_, ok := r.Get("echo")
 	if !ok {

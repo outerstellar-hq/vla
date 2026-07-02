@@ -43,12 +43,22 @@ func OpenOrCreateSession(resumeID, model string) (*session.Session, error) {
 	return session.New(session.WithModel(model))
 }
 
-// RegisterBuiltins adds all built-in tools to the registry.
+// RegisterBuiltins adds all built-in tools to the registry, wiring the
+// filesystem/git tools to baseDir (the project root they operate in).
 // To add a tool: implement tools.Tool in its own file under builtin/, then
 // add one line to the slice here.
-func RegisterBuiltins(r *tools.Registry) error {
+func RegisterBuiltins(r *tools.Registry, baseDir string) error {
+	ctx := builtin.Ctx{BaseDir: baseDir}
 	builtins := []tools.Tool{
 		builtin.Echo{},
+		builtin.ReadFile{Ctx: ctx},
+		builtin.WriteFile{Ctx: ctx},
+		builtin.UpdateFile{Ctx: ctx},
+		builtin.DeleteFile{Ctx: ctx},
+		builtin.ListFiles{Ctx: ctx},
+		builtin.GitStatus{Ctx: ctx},
+		builtin.GitDiff{Ctx: ctx},
+		builtin.GitCommit{Ctx: ctx},
 	}
 	for _, t := range builtins {
 		if err := r.Register(t); err != nil {
