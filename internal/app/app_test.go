@@ -61,6 +61,7 @@ func TestRegisterBuiltins_RegistersAll(t *testing.T) {
 	wantNames := []string{
 		"echo", "read_file", "write_file", "update_file", "delete_file",
 		"list_files", "search", "git_status", "git_diff", "git_commit",
+		"web_search", "web_read",
 	}
 	for _, name := range wantNames {
 		if _, ok := r.Get(name); !ok {

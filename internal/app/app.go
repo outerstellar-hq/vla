@@ -60,6 +60,8 @@ func RegisterBuiltins(r *tools.Registry, baseDir string) error {
 		builtin.GitStatus{Ctx: ctx},
 		builtin.GitDiff{Ctx: ctx},
 		builtin.GitCommit{Ctx: ctx},
+		builtin.WebSearch{},
+		builtin.WebRead{},
 	}
 	for _, t := range builtins {
 		if err := r.Register(t); err != nil {
