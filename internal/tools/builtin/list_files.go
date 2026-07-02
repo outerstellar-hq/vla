@@ -73,15 +73,22 @@ func (l ListFiles) Execute(args json.RawMessage) (string, error) {
 	return strings.Join(files, "\n"), nil
 }
 
+// ignoredDirNames is the list of directories tools skip (shared by list_files
+// and search). Keep in sync with ignoredDir's logic.
+var ignoredDirNames = []string{
+	".git", "node_modules", "vendor", "__pycache__", ".venv", "venv",
+	"dist", "build", "target", ".idea", ".vscode", ".cache",
+}
+
 // ignoredDir returns true for directories we never descend into.
 func ignoredDir(rel string) bool {
 	if rel == "." {
 		return false
 	}
-	switch filepath.Base(rel) {
-	case ".git", "node_modules", "vendor", "__pycache__", ".venv", "venv",
-		"dist", "build", "target", ".idea", ".vscode", ".cache":
-		return true
+	for _, d := range ignoredDirNames {
+		if filepath.Base(rel) == d {
+			return true
+		}
 	}
 	return false
 }

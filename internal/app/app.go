@@ -56,6 +56,7 @@ func RegisterBuiltins(r *tools.Registry, baseDir string) error {
 		builtin.UpdateFile{Ctx: ctx},
 		builtin.DeleteFile{Ctx: ctx},
 		builtin.ListFiles{Ctx: ctx},
+		builtin.Search{Ctx: ctx},
 		builtin.GitStatus{Ctx: ctx},
 		builtin.GitDiff{Ctx: ctx},
 		builtin.GitCommit{Ctx: ctx},

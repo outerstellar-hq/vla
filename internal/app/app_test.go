@@ -60,7 +60,7 @@ func TestRegisterBuiltins_RegistersAll(t *testing.T) {
 	// Update this list when new builtins are added.
 	wantNames := []string{
 		"echo", "read_file", "write_file", "update_file", "delete_file",
-		"list_files", "git_status", "git_diff", "git_commit",
+		"list_files", "search", "git_status", "git_diff", "git_commit",
 	}
 	for _, name := range wantNames {
 		if _, ok := r.Get(name); !ok {
