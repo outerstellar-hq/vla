@@ -3,7 +3,7 @@
 ## Design Document & Session Handoff
 
 **Date:** 2026-07-02
-**Status:** Design phase (brainstorming in progress, not yet implemented)
+**Status:** Design finalized — ready for implementation planning
 **Repository:** `C:\Develop\Claude\projects\weird\vla`
 **Language:** Go
 **Authors:** Alexander Brandt + friend
@@ -202,40 +202,69 @@ The loop continues automatically when the LLM requests tool calls — the user o
 
 Deliberately minimal. `base_url` makes it OpenAI-compatible (works with any provider that implements the OpenAI chat completions API: OpenAI, OpenRouter, Together, local vLLM, etc.).
 
+**Config discovery:** When `--config` is not passed, look for `config.json` in CWD first, then fall back to `~/.vla/config.json`. Either way, the loaded config can be overridden by `--model`.
+
+### CLI flags
+
+```
+vla                      # new session; config from CWD or ~/.vla/config.json
+vla --resume <session-id> # resume a prior session by ID (restores cwd + transcript)
+vla --model <name>       # override config model for this run
+vla --config <path>      # use a non-default config file location
+```
+
+Parsed with the stdlib `flag` package. `--resume` is the highest-value flag — it reads the existing NDJSON transcript, rebuilds the in-memory message list, and restores the session's recorded `cwd` (with a warning if the path no longer exists).
+
+### Tool-call error handling
+
+Tool errors are **content, not control flow**. `Execute()` returns the error as its result string — e.g. `("Error: file not found: auth.py", nil)` — never as a Go `error` that breaks the loop. The LLM sees the error and adapts.
+
+The loop only aborts on **infrastructure failures** — anything where retrying the same call cannot help:
+- API down / network unreachable
+- Auth rejected (401/403)
+- Malformed API response (after a retry budget)
+- Compaction's own summarization call failing (logged; falls back to truncation)
+
+### Multi-line input
+
+A simple read loop: collect lines from stdin until the user enters a blank line (empty input = submit), like many REPLs. Handles pasted multi-line content. No external dependency. If it proves awkward, swap in `chzyer/readline` or similar in a later build.
+
 ### Session & transcript model
 
 **On launch:**
-1. Create a new session (UUID or timestamp-based ID).
+1. Create a new session (timestamp-based ID, e.g. `2026-07-02T150300Z`).
 2. Capture CWD automatically (`os.Getwd()`).
-3. Create a transcript file: `~/.vla/sessions/<session-id>.json` (or in the project dir — TBD).
+3. Create a transcript file: `~/.vla/sessions/<session-id>.json`.
 4. Start the agent loop with an empty transcript.
 
-**Transcript format:** YAML frontmatter + JSON body per turn.
+**Transcript storage:** Global, under `~/.vla/sessions/<session-id>.json`. The session's project association is preserved by storing `cwd` in the transcript metadata (and restoring it on resume). A future build may add an index in `~/.vla/` mapping session IDs to project paths for cross-project browsing; not needed for the first build.
 
-```yaml
----
-session: 2026-07-02T150300Z
-cwd: /home/user/myproject
-model: gpt-4o
-created: 2026-07-02T15:03:00Z
----
-```
+**Transcript format:** NDJSON (newline-delimited JSON) — one parser, append-only, streamable.
 
-Followed by JSON turns (one per line or array):
-
+- **Line 1** — session metadata object:
 ```json
-{"role": "user", "content": "Fix the login bug in auth.py", "timestamp": "2026-07-02T15:03:01Z"}
-{"role": "assistant", "content": "I'll investigate the auth module...", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"auth.py\"}"}}], "timestamp": "2026-07-02T15:03:02Z"}
-{"role": "tool", "tool_call_id": "call_1", "content": "...file contents...", "timestamp": "2026-07-02T15:03:02Z"}
+{"type": "session", "id": "2026-07-02T150300Z", "cwd": "/home/user/myproject", "model": "gpt-4o", "created": "2026-07-02T15:03:00Z"}
+```
+- **Subsequent lines** — turns, one JSON object per line:
+```json
+{"type": "turn", "role": "user", "content": "Fix the login bug in auth.py", "timestamp": "2026-07-02T15:03:01Z"}
+{"type": "turn", "role": "assistant", "content": "I'll investigate the auth module...", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"auth.py\"}"}}], "timestamp": "2026-07-02T15:03:02Z"}
+{"type": "turn", "role": "tool", "tool_call_id": "call_1", "content": "...file contents...", "timestamp": "2026-07-02T15:03:02Z"}
 ```
 
-Each turn is stored as it happens — the transcript is the source of truth for the conversation. On the next LLM call, the full transcript (or compacted version) is sent as `messages[]`.
+Each turn is appended as it happens — the transcript is the source of truth for the conversation. On the next LLM call, the full transcript (or compacted version) is sent as `messages[]`. Resume = read the existing NDJSON file and rebuild the in-memory transcript.
 
 ### Compaction (borrowed from Chalie)
 
-When the transcript grows too long for the LLM's context window, old turns are summarized into a compact representation. The exact algorithm is borrowed from the Chalie project — likely: identify the oldest N turns, summarize them into a single "system/context" message, replace them in the transcript view sent to the LLM.
+When the transcript grows too long for the LLM's context window, old turns are summarized into a compact representation.
 
-**For the prototype:** A simple threshold (e.g. when transcript exceeds 50K chars) triggers compaction. The implementation should be a separate function that transforms `[]Message` → `[]Message`, so it's easy to test and swap algorithms.
+**Algorithm (prototype):**
+- **Threshold:** trigger when the transcript exceeds ~100K chars (~25K tokens, leaving headroom under a 32K context window). The constant lives in `internal/compaction/compaction.go` so it's easy to tune.
+- **Action:** take the oldest N turns (everything before the most recent ~8 turns) and make one LLM call asking for a terse summary preserving file paths, decisions, errors, and incomplete tasks. Substitute a single `{"role": "system", "content": "<summary>"}` message in their place.
+- **Representation:** compaction is a *view transform* — the on-disk transcript is never modified. `compaction.Compact([]Message) []Message` returns the messages actually sent to the LLM. The real turns stay on disk forever.
+- **Summarization prompt:** "Summarize the following conversation turns. Preserve: file paths mentioned, decisions made, errors encountered, and any incomplete tasks. Be terse." (Refine after dogfooding.)
+
+**Token counting:** estimated from chars for the prototype (~4 chars ≈ 1 token — accurate enough for threshold checks). The OpenAI-compatible API returns real `usage` tokens per response, which we record in the transcript for later analysis. A tiktoken Go port can be swapped in later if estimates misfire.
 
 ---
 
@@ -286,30 +315,34 @@ These are documented for context but NOT part of the first build:
 
 ### Where we are in the design process
 
-The brainstorming was in progress when this document was written. The following design decisions are **confirmed**:
+All design decisions are **confirmed**:
 - Language: Go
 - No MCP for prototype
 - Streaming responses
 - Core loop + tool framework as first scope
 - Tool interface as Go struct with `Name()`, `Schema()`, `Execute()`
-- Config format: minimal JSON
-- Transcript: YAML frontmatter + JSON turns
-- New session per launch, auto-CWD
+- Config format: minimal JSON; discovery: CWD `config.json` → `~/.vla/config.json`
+- Transcript: NDJSON (metadata line + turn lines), stored globally at `~/.vla/sessions/<id>.json`
+- New session per launch, auto-CWD; `--resume` restores cwd + transcript
+- CLI flags: `--resume`, `--model`, `--config`
+- Compaction: char-threshold (~100K) triggers LLM summarization of oldest turns into one system message; on-disk transcript is never modified (view transform only)
+- Token counting: char estimate (~4 chars ≈ 1 token) for the prototype
+- Tool-call errors: returned as result strings, LLM decides; loop only aborts on infrastructure failures
+- Multi-line input: read loop until blank line
 
-### What's NOT yet decided
+### What's intentionally deferred (not blockers)
 
-These questions were not yet reached in brainstorming:
-1. **Transcript storage location:** `~/.vla/sessions/` or in-project `.vla/` directory?
-2. **Compaction algorithm details:** exact threshold, summarization prompt, how compacted turns are represented.
-3. **Tool-call error handling:** when a tool fails, does the loop retry, abort, or let the LLM decide?
-4. **Token counting:** do we count tokens ourselves (tiktoken Go port) or estimate from chars?
-5. **CLI flags:** any beyond the implicit "launch = new session"? (e.g. `--resume <session-id>`, `--model`, `--config`)
-6. **Multi-line input handling:** how does the user enter multi-line messages in the terminal?
+These are documented as future-work reminders, not open questions:
+1. **Real token counting** — swap char estimate for a tiktoken Go port if estimates misfire.
+2. **Cross-project session index** — a `~/.vla/` index mapping session IDs to project paths for browsing. Not needed until you have many sessions.
+3. **Refined compaction prompt** — tune after dogfooding.
+4. **Richer input editing** — readline-style history/editing if the blank-line terminator proves limiting.
+5. **Tool-call retry policy** — currently "LLM decides"; may add bounded auto-retry for transient errors later.
 
 ### Next steps for the new session
 
-1. Resolve the open questions above.
-2. Finalize the design doc and get approval.
+1. ~~Resolve the open questions.~~ ✅ Done — all decisions recorded above.
+2. ~~Finalize the design doc and get approval.~~ ✅ Done.
 3. Write the implementation plan (writing-plans skill).
 4. Execute (subagent-driven development).
 
