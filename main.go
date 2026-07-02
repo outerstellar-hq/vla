@@ -8,11 +8,13 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/abrandt/vla/internal/agent"
 	"github.com/abrandt/vla/internal/app"
 	"github.com/abrandt/vla/internal/compaction"
 	"github.com/abrandt/vla/internal/config"
+	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/llm"
 	"github.com/abrandt/vla/internal/tools"
 )
@@ -46,8 +48,19 @@ func main() {
 		}
 	}
 
+	// Start the background indexer (the live symbol/reference index).
+	ix := indexer.New(sess.CWD())
+	if n, err := ix.Build(); err != nil {
+		fmt.Fprintf(os.Stderr, "vla: warn: initial index build failed: %v\n", err)
+	} else {
+		fmt.Fprintf(os.Stderr, "vla: indexed %d files\n", n)
+	}
+	watcher := indexer.NewWatcher(ix, 5*time.Second)
+	watcher.Start()
+	defer watcher.Stop()
+
 	reg := tools.NewRegistry()
-	if err := app.RegisterBuiltins(reg, sess.CWD()); err != nil {
+	if err := app.RegisterBuiltins(reg, sess.CWD(), ix); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: register tools: %v\n", err)
 		os.Exit(1)
 	}

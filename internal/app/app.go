@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
@@ -44,10 +45,10 @@ func OpenOrCreateSession(resumeID, model string) (*session.Session, error) {
 }
 
 // RegisterBuiltins adds all built-in tools to the registry, wiring the
-// filesystem/git tools to baseDir (the project root they operate in).
-// To add a tool: implement tools.Tool in its own file under builtin/, then
-// add one line to the slice here.
-func RegisterBuiltins(r *tools.Registry, baseDir string) error {
+// filesystem/git tools to baseDir (the project root they operate in) and
+// the navigation tools to the background indexer. To add a tool: implement
+// tools.Tool in its own file under builtin/, then add one line to the slice.
+func RegisterBuiltins(r *tools.Registry, baseDir string, ix *indexer.Indexer) error {
 	ctx := builtin.Ctx{BaseDir: baseDir}
 	builtins := []tools.Tool{
 		builtin.Echo{},
@@ -62,6 +63,8 @@ func RegisterBuiltins(r *tools.Registry, baseDir string) error {
 		builtin.GitCommit{Ctx: ctx},
 		builtin.WebSearch{},
 		builtin.WebRead{},
+		builtin.GoToDefinition{Index: ix},
+		builtin.FindReferences{Index: ix},
 	}
 	for _, t := range builtins {
 		if err := r.Register(t); err != nil {
