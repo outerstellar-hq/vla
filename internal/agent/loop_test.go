@@ -26,6 +26,29 @@ func streamingServer(t *testing.T, chunks []string) *httptest.Server {
 	}))
 }
 
+// newTestLoop builds a Loop with compaction effectively disabled (huge
+// threshold + identity compactor). The tests don't exercise compaction —
+// they verify the stream/tool-call loop itself.
+func newTestLoop(client *llm.Client, reg *tools.Registry) *agent.Loop {
+	return agent.NewLoop(
+		client,
+		reg,
+		identityCompactor,
+		stubSummarizer,
+		1_000_000,
+	)
+}
+
+// identityCompactor returns msgs unchanged. Used in tests where compaction
+// is not the subject.
+func identityCompactor(msgs []agent.Message, _ agent.Summarizer, _ int) ([]agent.Message, error) {
+	return msgs, nil
+}
+
+func stubSummarizer(_ []agent.Message) (string, error) {
+	return "stub summary", nil
+}
+
 func TestLoop_TextOnly_Terminates(t *testing.T) {
 	srv := streamingServer(t, []string{
 		`{"choices":[{"delta":{"role":"assistant","content":"hi there"}}]}`,
@@ -35,7 +58,7 @@ func TestLoop_TextOnly_Terminates(t *testing.T) {
 
 	client := llm.NewClient("k", srv.URL, "gpt-4o")
 	reg := tools.NewRegistry()
-	loop := agent.NewLoop(client, reg, 1_000_000)
+	loop := newTestLoop(client, reg)
 
 	var output strings.Builder
 	err := loop.Run(strings.NewReader("hello\n\n"), &output)
@@ -79,7 +102,7 @@ func TestLoop_ToolCall_ExecutesAndLoops(t *testing.T) {
 	if err := reg.Register(builtin.Echo{}); err != nil {
 		t.Fatal(err)
 	}
-	loop := agent.NewLoop(client, reg, 1_000_000)
+	loop := newTestLoop(client, reg)
 
 	var output strings.Builder
 	err := loop.Run(strings.NewReader("call echo with ping\n\n"), &output)
@@ -124,7 +147,7 @@ func TestLoop_ToolError_FedBackToLLM(t *testing.T) {
 	client := llm.NewClient("k", srv.URL, "gpt-4o")
 	reg := tools.NewRegistry()
 	_ = reg.Register(builtin.Echo{})
-	loop := agent.NewLoop(client, reg, 1_000_000)
+	loop := newTestLoop(client, reg)
 
 	var output strings.Builder
 	err := loop.Run(strings.NewReader("call echo badly\n\n"), &output)

@@ -20,16 +20,13 @@ const CharThreshold = 100_000
 // Everything older than this is eligible for summarization.
 const KeepRecent = 8
 
-// Summarizer summarizes a slice of messages into a terse string.
-// The agent loop supplies a real implementation that calls the LLM.
-type Summarizer func(msgs []agent.Message) (string, error)
-
 // Compact returns the message list to send to the LLM. If the total
 // character count is below threshold, or there are too few messages
 // to summarize, the input is returned unchanged. Otherwise the oldest
 // turns (all but the most recent KeepRecent) are replaced by a single
-// system message produced by sum.
-func Compact(msgs []agent.Message, sum Summarizer, threshold int) ([]agent.Message, error) {
+// system message produced by sum. The Summarizer type is defined in the
+// agent package to avoid an import cycle (this package imports agent).
+func Compact(msgs []agent.Message, sum agent.Summarizer, threshold int) ([]agent.Message, error) {
 	if totalChars(msgs) < threshold {
 		return msgs, nil
 	}

@@ -17,15 +17,15 @@ type Streamer interface {
 	StreamTo(messages []Message, toolDefs []map[string]any, out io.Writer) (Message, error)
 }
 
-// keepRecent mirrors compaction.KeepRecent: the number of most-recent turns
-// always preserved verbatim when compacting. Duplicated here to avoid an
-// import cycle (compaction imports agent for Message).
-const keepRecent = 8
-
-// Summarizer summarizes a slice of messages into a terse string. This
-// mirrors compaction.Summarizer; it lives here to avoid the agent↔compaction
-// import cycle.
+// Summarizer summarizes a slice of messages into a terse string. Defined
+// here (mirroring compaction.Summarizer) to avoid the agent↔compaction
+// import cycle; the loop receives the real compaction logic via Compactor.
 type Summarizer func(msgs []Message) (string, error)
+
+// Compactor reduces the message list for the LLM when it grows too large.
+// It is satisfied by compaction.Compact; injected here to avoid an import
+// cycle (compaction imports agent for Message).
+type Compactor func(msgs []Message, sum Summarizer, threshold int) ([]Message, error)
 
 // Loop is the VLA agent loop. It is created once per session and run with
 // a user-input reader and an output writer (the terminal).
@@ -33,19 +33,21 @@ type Loop struct {
 	client     Streamer
 	registry   *tools.Registry
 	summarizer Summarizer
+	compactor  Compactor
 	threshold  int
 	messages   []Message
 }
 
-// NewLoop returns a Loop wired to the given client and tool registry.
-// threshold is the compaction character threshold. client must satisfy
-// Streamer (e.g. *llm.Client).
-func NewLoop(client Streamer, registry *tools.Registry, threshold int) *Loop {
+// NewLoop returns a Loop wired to the given client, tool registry, compactor,
+// and summarizer. threshold is the compaction character threshold. client must
+// satisfy Streamer (e.g. *llm.Client); compactor is typically compaction.Compact.
+func NewLoop(client Streamer, registry *tools.Registry, compactor Compactor, sum Summarizer, threshold int) *Loop {
 	return &Loop{
 		client:     client,
 		registry:   registry,
+		compactor:  compactor,
+		summarizer: sum,
 		threshold:  threshold,
-		summarizer: defaultSummarizer(client),
 	}
 }
 
@@ -79,7 +81,7 @@ func (l *Loop) Run(in io.Reader, out io.Writer) error {
 // → loop until the LLM responds without tool calls.
 func (l *Loop) turn(out io.Writer) error {
 	for {
-		view, err := compact(l.messages, l.summarizer, l.threshold)
+		view, err := l.compactor(l.messages, l.summarizer, l.threshold)
 		if err != nil {
 			return err
 		}
@@ -157,70 +159,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
-}
-
-// compact is a local replica of compaction.Compact. It exists here to avoid
-// an import cycle: compaction imports agent (for Message), so agent cannot
-// import compaction back. The logic is identical and kept in sync.
-//
-// If the total character count is below threshold, or there are too few
-// messages to summarize, the input is returned unchanged. Otherwise the
-// oldest turns (all but the most recent keepRecent) are replaced by a single
-// system message produced by sum.
-func compact(msgs []Message, sum Summarizer, threshold int) ([]Message, error) {
-	if totalChars(msgs) < threshold {
-		return msgs, nil
-	}
-	if len(msgs) <= keepRecent {
-		return msgs, nil
-	}
-
-	split := len(msgs) - keepRecent
-	old := msgs[:split]
-	recent := msgs[split:]
-
-	summary, err := sum(old)
-	if err != nil {
-		return nil, fmt.Errorf("agent: summarize: %w", err)
-	}
-	out := make([]Message, 0, 1+len(recent))
-	out = append(out, Message{
-		Role:    RoleSystem,
-		Content: "Summary of earlier conversation:\n\n" + summary,
-	})
-	out = append(out, recent...)
-	return out, nil
-}
-
-func totalChars(msgs []Message) int {
-	total := 0
-	for _, m := range msgs {
-		total += len(m.Content)
-		for _, tc := range m.ToolCalls {
-			total += len(tc.Function.Arguments)
-		}
-	}
-	return total
-}
-
-// defaultSummarizer returns a Summarizer that calls the LLM to produce a
-// terse summary of older turns. Used in production; tests don't trigger
-// compaction (threshold is set to 1_000_000 in tests).
-func defaultSummarizer(c Streamer) Summarizer {
-	return func(msgs []Message) (string, error) {
-		var b strings.Builder
-		for _, m := range msgs {
-			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
-		}
-		summaryReq := []Message{{
-			Role: RoleUser,
-			Content: "Summarize the following conversation turns. Preserve: file paths mentioned, " +
-				"decisions made, errors encountered, and any incomplete tasks. Be terse.\n\n" + b.String(),
-		}}
-		resp, err := c.StreamTo(summaryReq, nil, io.Discard)
-		if err != nil {
-			return "", err
-		}
-		return resp.Content, nil
-	}
 }
