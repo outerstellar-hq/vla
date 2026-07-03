@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/vla-icon.png" alt="VLA — Very Large Agent" width="200">
+  <img src="assets/vla-icon-256.png" alt="VLA — Very Large Agent" width="200">
 </p>
 
 <h1 align="center">VLA — Very Large Agent</h1>
