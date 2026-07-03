@@ -481,12 +481,47 @@ func TestLoop_NoWriterDoesntPanic(t *testing.T) {
 	client := llm.NewClient("k", srv.URL, "gpt-4o")
 	reg := tools.NewRegistry()
 	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
-	// No SetTranscriptWriter call — writer stays nil.
 
 	var output strings.Builder
 	err := loop.Run(strings.NewReader("hi\n\n"), &output)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+// TestLoop_MaxTurnsAbortsInfiniteToolCallLoop verifies that if the LLM keeps
+// requesting tool calls beyond MaxTurns, the loop aborts and returns control
+// to the user instead of looping forever.
+func TestLoop_MaxTurnsAbortsInfiniteToolCallLoop(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		// Every response requests the echo tool — never terminates.
+		w.Write([]byte(`data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"echo","arguments":"{\"text\":\"loop\"}"}}]}}]}` + "\n\n"))
+		w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	_ = reg.Register(builtin.Echo{})
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+
+	var output strings.Builder
+	err := loop.Run(strings.NewReader("hi\n\n"), &output)
+	if err != nil {
+		t.Fatalf("Run should not error on max-turns: %v", err)
+	}
+	// Should have called the LLM exactly MaxTurns times, then aborted.
+	if callCount != agent.MaxTurns {
+		t.Errorf("expected %d LLM calls (MaxTurns), got %d", agent.MaxTurns, callCount)
+	}
+	if !strings.Contains(output.String(), "max") {
+		t.Errorf("expected max-turns notice in output, got %q", output.String())
 	}
 }
 

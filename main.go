@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -99,23 +100,34 @@ func main() {
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
 
-	// On resume, reload prior messages from the transcript.
+	// On resume, reload prior messages from the transcript and prepend the
+	// system prompt so the LLM still knows what it is and what tools it has.
+	// (Without this, a resumed session has no system message at all.)
+	systemMsg := agent.Message{Role: agent.RoleSystem, Content: app.SystemPrompt()}
 	if *resume != "" {
 		msgs, err := app.LoadTranscriptMessages(sess)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "vla: warn: could not load transcript: %v\n", err)
-		} else if len(msgs) > 0 {
-			loop.LoadMessages(msgs)
+		} else {
+			// Prepend system prompt to the resumed conversation.
+			loop.LoadMessages(append([]agent.Message{systemMsg}, msgs...))
 			fmt.Fprintf(os.Stderr, "vla: resumed %d messages\n", len(msgs))
 		}
 	} else {
-		// New session: inject a system prompt as the first message so the
-		// LLM knows what it is and what tools it has.
-		loop.LoadMessages([]agent.Message{{
-			Role:    agent.RoleSystem,
-			Content: app.SystemPrompt(),
-		}})
+		loop.LoadMessages([]agent.Message{systemMsg})
 	}
+
+	// Catch Ctrl+C for clean shutdown: stop the watcher, kill LSP servers,
+	// flush the transcript. Without this, orphan processes leak.
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	go func() {
+		<-sigChan
+		fmt.Fprintf(os.Stderr, "\nvla: interrupt received, shutting down...\n")
+		watcher.Stop()
+		lspMgr.Close()
+		os.Exit(0)
+	}()
 
 	if err := loop.Run(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: %v\n", err)

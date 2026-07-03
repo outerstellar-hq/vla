@@ -126,10 +126,16 @@ func (l *Loop) Run(in io.Reader, out io.Writer) error {
 	}
 }
 
+// MaxTurns is the maximum number of LLM calls within a single turn (i.e.
+// consecutive tool-call → re-call cycles). Prevents runaway loops where
+// the model keeps requesting tool calls forever. 50 is generous — real
+// tasks rarely need more than 10-15.
+const MaxTurns = 50
+
 // turn executes one full agent turn: call LLM → stream → execute tool calls
 // → loop until the LLM responds without tool calls.
 func (l *Loop) turn(out io.Writer) error {
-	for {
+	for iter := 0; iter < MaxTurns; iter++ {
 		view, err := l.compactor(l.messages, l.summarizer, l.threshold)
 		if err != nil {
 			return err
@@ -160,6 +166,10 @@ func (l *Loop) turn(out io.Writer) error {
 			fmt.Fprintf(out, "[tool %s → %s]\n", tc.Function.Name, truncate(result, 200))
 		}
 	}
+	// Reached MaxTurns — the model is stuck in a tool-call loop. Abort
+	// gracefully and return control to the user.
+	fmt.Fprintf(out, "[reached max %d tool-call iterations — returning control to user]\n", MaxTurns)
+	return nil
 }
 
 // executeToolCall looks up the tool by name and runs it. Per the design,

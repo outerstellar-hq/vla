@@ -2,19 +2,27 @@ package builtin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/abrandt/vla/internal/fsutil"
 )
+
+// gitTimeout is the max time for any git command. Prevents a hung git
+// process (e.g. commit waiting for an editor) from blocking the loop.
+const gitTimeout = 30 * time.Second
 
 // gitCommon runs `git <args...>` in BaseDir and returns trimmed stdout.
 // On failure returns the trimmed stderr as an error string (suitable for
 // Tool.Execute's result string convention).
 func gitCommon(baseDir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = baseDir
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

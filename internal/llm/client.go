@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/abrandt/vla/internal/agent"
 )
@@ -24,13 +25,15 @@ type Client struct {
 	http    *http.Client
 }
 
-// NewClient returns a streaming client for the given config.
+// NewClient returns a streaming client for the given config. The HTTP client
+// has a 5-minute timeout — long enough for large completions, short enough to
+// not hang forever on a dead connection.
 func NewClient(apiKey, baseURL, model string) *Client {
 	return &Client{
 		apiKey:  apiKey,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
-		http:    &http.Client{},
+		http:    &http.Client{Timeout: 5 * time.Minute},
 	}
 }
 
