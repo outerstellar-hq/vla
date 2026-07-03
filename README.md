@@ -1,6 +1,13 @@
-# VLA — Very Large Agent
+<p align="center">
+  <img src="assets/vla-icon.png" alt="VLA — Very Large Agent" width="200">
+</p>
 
-A CLI-based agentic coding harness with persistent memory and LSP-backed code intelligence. Named after the Very Large Array: multiple tools working together to see deep into a codebase.
+<h1 align="center">VLA — Very Large Agent</h1>
+
+<p align="center">
+  A CLI-based agentic coding harness with persistent memory and LSP-backed code intelligence.<br>
+  Named after the <a href="https://en.wikipedia.org/wiki/Very_Large_Array">Very Large Array</a>: multiple tools working together to see deep into a codebase.
+</p>
 
 **237 deterministic tests. Full-screen TUI. MCP support. LSP integration.**
 
