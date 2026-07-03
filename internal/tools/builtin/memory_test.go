@@ -62,13 +62,17 @@ func TestMemorySearch_NoMemories(t *testing.T) {
 func TestMemoryList_ShowsMemories(t *testing.T) {
 	deps, _ := memoryDeps(t)
 	save := MemorySave{Deps: deps}
-	_, _ = save.Execute(json.RawMessage(`{"content":"first memory"}`))
-	_, _ = save.Execute(json.RawMessage(`{"content":"second memory"}`))
+	_, _ = save.Execute(json.RawMessage(`{"content":"alpha memory"}`))
+	_, _ = save.Execute(json.RawMessage(`{"content":"beta memory"}`))
 
 	list := MemoryList{Deps: deps}
 	out, _ := list.Execute(json.RawMessage(`{}`))
-	if !strings.Contains(out, "first memory") || !strings.Contains(out, "second memory") {
-		t.Errorf("expected both memories, got %q", out)
+	// Both memories should appear regardless of sort order.
+	if !strings.Contains(out, "alpha memory") {
+		t.Errorf("missing alpha memory: %q", out)
+	}
+	if !strings.Contains(out, "beta memory") {
+		t.Errorf("missing beta memory: %q", out)
 	}
 }
 

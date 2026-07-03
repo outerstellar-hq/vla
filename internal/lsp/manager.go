@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -209,13 +210,8 @@ func InferLanguage(workspace string) Language {
 }
 
 func fileExists(path string) bool {
-	_, err := exec.Command("stat", path).CombinedOutput()
-	if err == nil {
-		return true
-	}
-	// Fallback for Windows.
-	cmd := exec.Command("cmd", "/c", "if", "exist", path, "exit", "0")
-	return cmd.Run() == nil
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // pathToURI converts a filesystem path to an LSP file:// URI.
