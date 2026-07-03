@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Indexer walks a project tree, parses each supported source file, and
@@ -28,18 +29,19 @@ func (ix *Indexer) Index() *Index { return ix.index }
 func (ix *Indexer) Root() string { return ix.root }
 
 // Build walks the entire project tree and indexes every supported file.
-// Phase 1: parse all files for definitions. Phase 2: re-scan all files for
-// references to any known symbol (cross-file reference resolution).
+// Uses a worker pool (4 goroutines) for parallel file parsing — significantly
+// faster on large codebases.
+// Phase 1: parse all files for definitions (parallel).
+// Phase 2: re-scan all files for references (parallel).
 // Returns the number of files indexed.
 func (ix *Indexer) Build() (int, error) {
-	count := 0
 	type fileEntry struct {
-		absPath string
 		relPath string
 		source  string
 	}
-	var files []fileEntry
+	var paths []string
 
+	// Walk: collect supported file paths.
 	err := filepath.WalkDir(ix.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -55,39 +57,87 @@ func (ix *Indexer) Build() (int, error) {
 		if parserFor(ext) == nil {
 			return nil
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		rel := ix.rel(path)
-		files = append(files, fileEntry{absPath: path, relPath: rel, source: string(data)})
-		count++
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {
-		return count, err
+		return 0, err
 	}
 
-	// Phase 1: extract and store all definitions.
+	// Phase 1: parse all files in parallel for definitions.
+	type parseResult struct {
+		symbols []Symbol
+		refs    []Reference // unused in phase 1
+		relPath string
+		source  string
+	}
+	results := make(chan parseResult, len(paths))
+	jobs := make(chan string, len(paths))
+	for _, p := range paths {
+		jobs <- p
+	}
+	close(jobs)
+
+	const workers = 4
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for absPath := range jobs {
+				data, err := os.ReadFile(absPath)
+				if err != nil {
+					continue
+				}
+				rel := ix.rel(absPath)
+				symbols, _ := ParseFile(string(data), rel)
+				results <- parseResult{symbols: symbols, relPath: rel, source: string(data)}
+			}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	// Collect results: store definitions and keep source for phase 2.
 	allDefNames := map[string]bool{}
-	for _, f := range files {
-		symbols, _ := ParseFile(f.source, f.relPath)
-		for _, s := range symbols {
+	var files []fileEntry
+	for r := range results {
+		for _, s := range r.symbols {
 			ix.index.AddSymbol(s)
 			allDefNames[s.Name] = true
 		}
+		files = append(files, fileEntry{relPath: r.relPath, source: r.source})
 	}
 
-	// Phase 2: find references to any known symbol in every file.
+	// Phase 2: find references (parallel).
 	defSnapshot := ix.index.SymbolsSnapshot()
+	refResults := make(chan []Reference, len(files))
+	refJobs := make(chan fileEntry, len(files))
 	for _, f := range files {
-		refs := findReferences(f.source, f.relPath, allDefNames, defSnapshot)
+		refJobs <- f
+	}
+	close(refJobs)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for f := range refJobs {
+				refs := findReferences(f.source, f.relPath, allDefNames, defSnapshot)
+				refResults <- refs
+			}
+		}()
+	}
+	wg.Wait()
+	close(refResults)
+
+	for refs := range refResults {
 		for _, r := range refs {
 			ix.index.AddReference(r)
 		}
 	}
 
-	return count, nil
+	return len(paths), nil
 }
 
 // ReindexFile clears and re-indexes a single file. Used by the Watcher on

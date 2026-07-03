@@ -24,6 +24,7 @@ import (
 	"github.com/abrandt/vla/internal/memory"
 	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/permissions"
+	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
 )
@@ -37,6 +38,9 @@ func main() {
 			return
 		case "use":
 			runUseCmd(os.Args[2:])
+			return
+		case "sessions":
+			runSessionsCmd(os.Args[2:])
 			return
 		case "version":
 			fmt.Println("vla dev")
@@ -71,6 +75,10 @@ func runAgent() {
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "vla: session %s (cwd %s)\n", sess.ID(), sess.CWD())
+
+	// Record session in the index for cross-project browsing.
+	sessionIdx := session.LoadIndex()
+	sessionIdx.Record(sess.ID(), sess.CWD(), cfg.Model)
 
 	if *resume != "" {
 		if err := os.Chdir(sess.CWD()); err != nil {
@@ -371,4 +379,36 @@ func jsonMarshal(v any) ([]byte, error) {
 
 func writeFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0644)
+}
+
+// runSessionsCmd handles `vla sessions [--project <path>]`.
+func runSessionsCmd(args []string) {
+	idx := session.LoadIndex()
+
+	var projectFilter string
+	if len(args) >= 2 && args[0] == "--project" {
+		projectFilter = args[1]
+	}
+
+	var list []session.IndexEntry
+	if projectFilter != "" {
+		list = idx.ListByProject(projectFilter)
+	} else {
+		list = idx.List()
+	}
+
+	if len(list) == 0 {
+		fmt.Println("no sessions found")
+		return
+	}
+
+	fmt.Printf("%d sessions:\n", len(list))
+	for _, e := range list {
+		fmt.Printf("  %-25s %-25s %s  %s\n",
+			e.ID,
+			e.Model,
+			e.Created.Format("2006-01-02 15:04"),
+			e.Project,
+		)
+	}
 }
