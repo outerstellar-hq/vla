@@ -113,21 +113,16 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 10. Slash Commands
-**What:** In-app commands prefixed with `/` that invoke tools or change settings without going through the LLM.
-
-**Where:**
-- `internal/agent/loop.go` — intercept messages starting with `/`
-- `internal/commands/` — new package
-
-**Examples:**
-- `/tools` — list registered tools
-- `/memory search <query>` — search memories directly
-- `/model <name>` — switch model mid-session
-- `/compact` — manually trigger compaction
-- `/save <description>` — save current state as a memory
-- `/undo` — undo the last file change (needs a change journal)
-- `/help` — show available commands
+### 10. Slash Commands — DONE
+- [x] `/help` — show all available commands
+- [x] `/tools` — list registered tools
+- [x] `/model [name]` — show current model or instructions to switch
+- [x] `/memory search <query>` — search stored memories directly
+- [x] `/memory save <text>` — save a memory directly
+- [x] `/memory list` — list all memories
+- [x] `/compact` — manually trigger context compaction
+- [x] `/session` — show session ID, model, tool count
+- [x] Unknown commands return helpful error
 
 ---
 
@@ -225,4 +220,5 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Dependabot (grouped weekly PRs)
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
-- [x] 297 tests, all deterministic
+- [x] Slash commands (/help, /tools, /memory, /compact, /session)
+- [x] 309 tests, all deterministic

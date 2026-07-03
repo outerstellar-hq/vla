@@ -23,6 +23,11 @@ type ToolApprover interface {
 	Approve(toolName string, args map[string]any, preview string) bool
 }
 
+// CommandHandler executes slash commands (/help, /tools, etc.). If set,
+// the loop intercepts user input starting with "/" and calls this instead
+// of sending the message to the LLM.
+type CommandHandler func(input string) (output string, handled bool)
+
 // ToolPermissionChecker checks if a tool is blocked by permission rules.
 // Returns true if the tool is allowed to proceed (not denied).
 type ToolPermissionChecker interface {
@@ -72,6 +77,7 @@ type Loop struct {
 	input      InputReader           // set via SetInput; nil = legacy bufio mode
 	approver   ToolApprover          // optional; nil = no approval checks
 	permCheck  ToolPermissionChecker // optional; nil = no permission checks
+	cmdHandler CommandHandler        // optional; nil = no slash commands
 	threshold  int
 	messages   []Message
 }
@@ -120,6 +126,12 @@ func (l *Loop) SetApprover(a ToolApprover) {
 // blocked.
 func (l *Loop) SetPermissionChecker(p ToolPermissionChecker) {
 	l.permCheck = p
+}
+
+// SetCommandHandler installs a slash command handler. Messages starting with
+// "/" are intercepted and handled locally instead of sent to the LLM.
+func (l *Loop) SetCommandHandler(h CommandHandler) {
+	l.cmdHandler = h
 }
 
 // LoadMessages restores the in-memory message list from a prior session.
@@ -173,6 +185,14 @@ func (l *Loop) runReadline(out io.Writer) error {
 			continue
 		}
 
+		// Intercept slash commands.
+		if l.cmdHandler != nil {
+			if output, handled := l.cmdHandler(text); handled {
+				fmt.Fprintln(out, output)
+				continue
+			}
+		}
+
 		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})
 		l.persist(RoleUser, text, nil, "")
 		if err := l.turn(out); err != nil {
@@ -197,6 +217,14 @@ func (l *Loop) runPlain(in io.Reader, out io.Writer) error {
 		}
 		if strings.TrimSpace(text) == "" {
 			continue
+		}
+
+		// Intercept slash commands.
+		if l.cmdHandler != nil {
+			if output, handled := l.cmdHandler(text); handled {
+				fmt.Fprintln(out, output)
+				continue
+			}
 		}
 
 		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})

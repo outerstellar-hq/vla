@@ -14,6 +14,7 @@ import (
 	"github.com/abrandt/vla/internal/agent"
 	"github.com/abrandt/vla/internal/app"
 	"github.com/abrandt/vla/internal/approval"
+	"github.com/abrandt/vla/internal/commands"
 	"github.com/abrandt/vla/internal/compaction"
 	"github.com/abrandt/vla/internal/config"
 	"github.com/abrandt/vla/internal/indexer"
@@ -24,6 +25,7 @@ import (
 	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/permissions"
 	"github.com/abrandt/vla/internal/tools"
+	"github.com/abrandt/vla/internal/tools/builtin"
 )
 
 func main() {
@@ -169,6 +171,29 @@ func runAgent() {
 	} else if isInteractive() {
 		loop.SetApprover(approverAdapter{approval.NewReadlineApprover()})
 	}
+
+	// Slash commands: /help, /tools, /memory, /compact, /session
+	loop.SetCommandHandler(func(input string) (string, bool) {
+		result := commands.Execute(input, commands.Context{
+			Registry:  reg,
+			Model:     cfg.Model,
+			SessionID: sess.ID(),
+			ToolCount: len(reg.Schemas()),
+			MemSearch: func(q string) (string, error) {
+				raw, _ := json.Marshal(map[string]string{"query": q})
+				return builtin.MemorySearch{Deps: builtin.MemoryTools{
+					Store: memStore, Project: projectName,
+				}}.Execute(raw)
+			},
+			MemSave: func(text string) (string, error) {
+				raw, _ := json.Marshal(map[string]string{"content": text})
+				return builtin.MemorySave{Deps: builtin.MemoryTools{
+					Store: memStore, Project: projectName,
+				}}.Execute(raw)
+			},
+		})
+		return result.Output, result.Handled
+	})
 
 	// Use the TUI for interactive terminals; fall back to readline for piped
 	// input or when the terminal doesn't support raw mode.
