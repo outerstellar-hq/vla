@@ -11,6 +11,24 @@ import (
 	"github.com/abrandt/vla/internal/tools"
 )
 
+// ToolApprover decides whether a tool call needs human approval before
+// executing. Defined here to avoid importing the approval package (which
+// would create a dependency). The production approver lives in the approval
+// package; tests use AlwaysApprover.
+type ToolApprover interface {
+	// RequiresApproval returns true if the tool name needs a human checkpoint.
+	RequiresApproval(toolName string) bool
+	// Approve asks the user to approve a tool call. Returns true if approved,
+	// false if denied. The preview is a human-readable description of the change.
+	Approve(toolName string, args map[string]any, preview string) bool
+}
+
+// ToolPermissionChecker checks if a tool is blocked by permission rules.
+// Returns true if the tool is allowed to proceed (not denied).
+type ToolPermissionChecker interface {
+	IsBlocked(toolName string) bool
+}
+
 // TranscriptWriter persists a message to the on-disk transcript. It is
 // satisfied by a closure wrapping session.Session.Append; defined here to
 // avoid an import cycle (session doesn't import agent, but we keep it clean).
@@ -49,9 +67,11 @@ type Loop struct {
 	registry   *tools.Registry
 	summarizer Summarizer
 	compactor  Compactor
-	injector   ContextInjector  // optional; nil = no context injection
-	writer     TranscriptWriter // optional; nil = no persistence
-	input      InputReader      // set via SetInput; nil = legacy bufio mode
+	injector   ContextInjector       // optional; nil = no context injection
+	writer     TranscriptWriter      // optional; nil = no persistence
+	input      InputReader           // set via SetInput; nil = legacy bufio mode
+	approver   ToolApprover          // optional; nil = no approval checks
+	permCheck  ToolPermissionChecker // optional; nil = no permission checks
 	threshold  int
 	messages   []Message
 }
@@ -87,6 +107,19 @@ func (l *Loop) SetTranscriptWriter(w TranscriptWriter) {
 // back to plain bufio.Reader with blank-line-to-submit.
 func (l *Loop) SetInput(r InputReader) {
 	l.input = r
+}
+
+// SetApprover installs a tool approver for human-in-the-loop checkpoints
+// before destructive tool calls. If not called, all tools run without asking.
+func (l *Loop) SetApprover(a ToolApprover) {
+	l.approver = a
+}
+
+// SetPermissionChecker installs a permission checker that can block tools
+// entirely (before they reach the approver). If not called, no tools are
+// blocked.
+func (l *Loop) SetPermissionChecker(p ToolPermissionChecker) {
+	l.permCheck = p
 }
 
 // LoadMessages restores the in-memory message list from a prior session.
@@ -222,7 +255,23 @@ func (l *Loop) turn(out io.Writer) error {
 
 // executeToolCall looks up the tool by name and runs it. Per the design,
 // tool errors are returned as result strings — they never break the loop.
+// Permission checks run first (deny = blocked entirely). If the tool requires
+// approval and an approver is set, the user is asked before execution.
 func (l *Loop) executeToolCall(tc ToolCall) string {
+	// Permission check — blocked tools never execute.
+	if l.permCheck != nil && l.permCheck.IsBlocked(tc.Function.Name) {
+		return fmt.Sprintf("Error: tool %q is blocked by permission rules", tc.Function.Name)
+	}
+
+	// Approval check — destructive tools ask the user first.
+	if l.approver != nil && l.approver.RequiresApproval(tc.Function.Name) {
+		args := parseArgs(tc.Function.Arguments)
+		preview := buildPreview(tc.Function.Name, args)
+		if !l.approver.Approve(tc.Function.Name, args, preview) {
+			return fmt.Sprintf("Tool %q was denied by the user.", tc.Function.Name)
+		}
+	}
+
 	tool, ok := l.registry.Get(tc.Function.Name)
 	if !ok {
 		return fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
@@ -288,4 +337,49 @@ func lastUserContent(msgs []Message) string {
 // nowISO returns the current time in RFC 3339 format for transcript timestamps.
 func nowISO() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// parseArgs unmarshals the tool call arguments JSON into a map. Returns an
+// empty map on parse failure (non-fatal — the approval preview just shows
+// less detail).
+func parseArgs(argsJSON string) map[string]any {
+	var args map[string]any
+	if argsJSON != "" && argsJSON != "null" {
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+	}
+	if args == nil {
+		args = make(map[string]any)
+	}
+	return args
+}
+
+// buildPreview creates a human-readable preview of what the tool will do,
+// shown in the approval prompt. For write/update it shows the file path and
+// content snippet; for delete it shows the path; for git_commit the message.
+func buildPreview(toolName string, args map[string]any) string {
+	path, _ := args["path"].(string)
+	switch toolName {
+	case "write_file":
+		content, _ := args["content"].(string)
+		return fmt.Sprintf("WRITE %s (%d bytes):\n%s", path, len(content), truncateStr(content, 500))
+	case "update_file":
+		old, _ := args["old_string"].(string)
+		newStr, _ := args["new_string"].(string)
+		return fmt.Sprintf("UPDATE %s:\n- %s\n+ %s", path, truncateStr(old, 200), truncateStr(newStr, 200))
+	case "delete_file":
+		return fmt.Sprintf("DELETE %s", path)
+	case "git_commit":
+		msg, _ := args["message"].(string)
+		return fmt.Sprintf("GIT COMMIT: %s", msg)
+	default:
+		return fmt.Sprintf("%s %v", toolName, args)
+	}
+}
+
+// truncateStr shortens s to at most n chars, appending "…" if truncated.
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

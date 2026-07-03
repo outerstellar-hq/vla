@@ -5,52 +5,20 @@ where it goes, and why it matters.
 
 ---
 
-## P0 — Trust & Safety (blocks daily use)
+## P0 — Trust & Safety
 
-### 1. Diff Approval System
-**What:** Before `write_file`, `update_file`, or `delete_file` executes, show the user a unified diff and let them approve (y/n), approve all, or reject.
+### 1. Diff Approval System — DONE
+- [x] Approver interface in agent loop (ToolApprover)
+- [x] AlwaysApprover (--yes flag, piped input)
+- [x] ReadlineApprover (interactive y/n/a prompt with preview)
+- [x] Per-tool: only write_file, update_file, delete_file, git_commit require approval
+- [x] Preview shows file path + content snippet / diff for the change
 
-**Where:**
-- `internal/agent/loop.go` — add an `Approver` interface injected into `executeToolCall`
-- `internal/approval/` — new package with `DiffApprover` (TUI prompt), `AlwaysApprover` (auto), `NeverApprover` (dry-run)
-- `internal/tui/model.go` — render diff in a modal/popup, capture y/n keystroke
-
-**Why:** This is the #1 reason people trust Claude Code. Without it, the LLM can modify files with zero human oversight. The path confinement prevents escaping the project, but doesn't prevent destructive changes *within* it (e.g. `rm -rf src/`).
-
-**Design:**
-```go
-type Approver interface {
-    Approve(toolName string, args map[string]any, preview string) (bool, error)
-}
-```
-- `DiffApprover` renders the diff and waits for y/n in the TUI or readline.
-- `AlwaysApprover` auto-approves (for `--yes` flag or piped input).
-- Configurable per-tool: some tools (read_file, search) never need approval; others (delete_file, git_commit) always do.
-
----
-
-### 2. Permission System
-**What:** Allow/deny rules per tool, configurable via `.vla/permissions.json` or CLI flags. Examples: "deny git_push", "allow read_file everywhere", "ask before write_file in /docs".
-
-**Where:**
-- `internal/permissions/` — new package
-- `.vla/permissions.json` — config file
-- `internal/agent/loop.go` — check permissions before `executeToolCall`
-
-**Why:** Without permissions, every tool call runs unconditionally. A user may want the LLM to read and analyze but not modify. Or restrict git operations to non-destructive ones (status/diff but not commit/push).
-
-**Config format:**
-```json
-{
-  "rules": [
-    {"tool": "git_commit", "action": "deny"},
-    {"tool": "write_file", "action": "ask"},
-    {"tool": "delete_file", "action": "deny"},
-    {"tool": "read_file", "action": "allow"}
-  ],
-  "default": "ask"
-}
-```
+### 2. Permission System — DONE
+- [x] .vla/permissions.json with allow/deny/ask rules per tool
+- [x] Permission checker injected into agent loop (runs before approver)
+- [x] Blocked tools return "blocked by permission rules" to LLM, never execute
+- [x] Default action configurable (allow/ask/deny when no rule matches)
 
 ---
 
@@ -269,4 +237,6 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Context-limit-aware compaction threshold
 - [x] CI pipeline (GitHub Actions, golangci-lint, race detector)
 - [x] Dependabot (grouped weekly PRs)
-- [x] 262 tests (253 unit + 9 integration), all deterministic
+- [x] Diff approval system (human-in-the-loop before destructive tools)
+- [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
+- [x] 289 tests (278 unit + 9 integration + 2 approval/permission), all deterministic

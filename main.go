@@ -13,6 +13,7 @@ import (
 
 	"github.com/abrandt/vla/internal/agent"
 	"github.com/abrandt/vla/internal/app"
+	"github.com/abrandt/vla/internal/approval"
 	"github.com/abrandt/vla/internal/compaction"
 	"github.com/abrandt/vla/internal/config"
 	"github.com/abrandt/vla/internal/indexer"
@@ -21,6 +22,7 @@ import (
 	"github.com/abrandt/vla/internal/mcp"
 	"github.com/abrandt/vla/internal/memory"
 	"github.com/abrandt/vla/internal/modelsdev"
+	"github.com/abrandt/vla/internal/permissions"
 	"github.com/abrandt/vla/internal/tools"
 )
 
@@ -47,6 +49,7 @@ func runAgent() {
 	resume := flag.String("resume", "", "session ID to resume (default: new session)")
 	modelFlag := flag.String("model", "", "override config model for this run")
 	configFlag := flag.String("config", "", "path to config.json (default: ./config.json then ~/.vla/config.json)")
+	yesFlag := flag.Bool("yes", false, "auto-approve all tool calls (no confirmation prompts)")
 	flag.Parse()
 
 	cfgPath := app.ResolveConfigPath(*configFlag)
@@ -141,6 +144,23 @@ func runAgent() {
 	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, threshold)
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
+
+	// Permission system: load .vla/permissions.json (deny rules block tools
+	// before they reach the approver).
+	permMgr, err := permissions.Load(baseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: warn: permissions: %v\n", err)
+		permMgr = &permissions.Manager{Default: permissions.ActionAllow}
+	}
+	loop.SetPermissionChecker(permChecker{permMgr})
+
+	// Approval system: --yes flag skips all prompts; otherwise prompt before
+	// destructive tools (write_file, update_file, delete_file, git_commit).
+	if *yesFlag {
+		loop.SetApprover(alwaysApprover{})
+	} else if isInteractive() {
+		loop.SetApprover(approverAdapter{approval.NewReadlineApprover()})
+	}
 
 	// Use the TUI for interactive terminals; fall back to readline for piped
 	// input or when the terminal doesn't support raw mode.
