@@ -16,6 +16,10 @@ type Language string
 const (
 	LangPython Language = "python"
 	LangGo     Language = "go"
+	LangKotlin Language = "kotlin"
+	LangJava   Language = "java"
+	LangCSharp Language = "csharp"
+	LangPHP    Language = "php"
 )
 
 // ServerSpec describes how to launch a language server for one language.
@@ -25,13 +29,26 @@ type ServerSpec struct {
 	Args     []string // command-line arguments
 }
 
-// DefaultSpecs returns sensible defaults: pyright for Python, gopls for Go.
+// DefaultSpecs returns sensible defaults for each supported language.
 // These are only used if the server is found on PATH; the manager won't fail
 // if they're missing — navigation tools just fall back to the regex indexer.
+//
+// Server choices (same as Memwizard):
+//
+//	Python:  pyright-langserver --stdio
+//	Go:      gopls serve
+//	Kotlin:  fwcd/kotlin-language-server (java -jar server/bin/kotlin-language-server)
+//	Java:    Eclipse JDT.LS (jdtls -data <workspace>)
+//	C#:      OmniSharp-roslyn (-lsp)
+//	PHP:     intelephense --stdio
 func DefaultSpecs() map[Language]ServerSpec {
 	return map[Language]ServerSpec{
 		LangPython: {Language: LangPython, Command: "pyright-langserver", Args: []string{"--stdio"}},
 		LangGo:     {Language: LangGo, Command: "gopls", Args: []string{"serve"}},
+		LangKotlin: {Language: LangKotlin, Command: "kotlin-language-server", Args: []string{"--stdio"}},
+		LangJava:   {Language: LangJava, Command: "jdtls", Args: []string{"--stdio"}},
+		LangCSharp: {Language: LangCSharp, Command: "OmniSharp", Args: []string{"-lsp"}},
+		LangPHP:    {Language: LangPHP, Command: "intelephense", Args: []string{"--stdio"}},
 	}
 }
 
@@ -188,19 +205,37 @@ func (m *Manager) Close() {
 	m.clients = make(map[string]*clientHandle)
 }
 
-// InferLanguage guesses the language from project files. Returns empty string
-// if it can't determine.
+// InferLanguage guesses the primary language from project marker files.
+// Returns empty string if it can't determine.
 func InferLanguage(workspace string) Language {
-	// Check for go.mod → Go.
-	if _, err := exec.Command("test", "-f", filepath.Join(workspace, "go.mod")).CombinedOutput(); err == nil {
-		// Actually use stat, not test.
-	}
-	// Simpler: check file existence directly.
-	goMod := filepath.Join(workspace, "go.mod")
-	if fileExists(goMod) {
+	// Go: go.mod
+	if fileExists(filepath.Join(workspace, "go.mod")) {
 		return LangGo
 	}
-	// Python: look for requirements.txt, setup.py, pyproject.toml.
+	// Kotlin: build.gradle.kts or settings.gradle.kts + src/main/kotlin dir
+	if fileExists(filepath.Join(workspace, "build.gradle.kts")) ||
+		fileExists(filepath.Join(workspace, "settings.gradle.kts")) {
+		return LangKotlin
+	}
+	// Java: pom.xml or build.gradle (non-kts)
+	if fileExists(filepath.Join(workspace, "pom.xml")) ||
+		fileExists(filepath.Join(workspace, "build.gradle")) {
+		return LangJava
+	}
+	// C#: .csproj or .sln
+	matches, _ := filepath.Glob(filepath.Join(workspace, "*.csproj"))
+	if len(matches) > 0 {
+		return LangCSharp
+	}
+	matches, _ = filepath.Glob(filepath.Join(workspace, "*.sln"))
+	if len(matches) > 0 {
+		return LangCSharp
+	}
+	// PHP: composer.json
+	if fileExists(filepath.Join(workspace, "composer.json")) {
+		return LangPHP
+	}
+	// Python: requirements.txt, setup.py, pyproject.toml
 	for _, f := range []string{"requirements.txt", "setup.py", "pyproject.toml"} {
 		if fileExists(filepath.Join(workspace, f)) {
 			return LangPython

@@ -147,7 +147,7 @@ func (w *Watcher) scan(initial bool) {
 
 func isSupportedExt(ext string) bool {
 	switch ext {
-	case ".py", ".go":
+	case ".py", ".go", ".kt", ".kts", ".java", ".cs", ".php":
 		return true
 	}
 	return false

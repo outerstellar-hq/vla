@@ -23,6 +23,14 @@ func parserFor(ext string) Parser {
 		return pythonParser{}
 	case ".go":
 		return goParser{}
+	case ".kt", ".kts":
+		return kotlinParser{}
+	case ".java":
+		return javaParser{}
+	case ".cs":
+		return csharpParser{}
+	case ".php":
+		return phpParser{}
 	default:
 		return nil
 	}
@@ -182,4 +190,216 @@ func containsWord(s, name string) bool {
 
 func isIdentChar(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+// --- Kotlin ---
+
+type kotlinParser struct{}
+
+var (
+	ktFunRe   = regexp.MustCompile(`^\s*(?:private|public|protected|internal|open|override|abstract|suspend|inline|operator|infix)?\s*fun\s+(?:<[^>]*>\s+)?(\w+)\s*\(`)
+	ktClassRe = regexp.MustCompile(`^\s*(?:public|private|protected|internal|open|abstract|sealed|data|enum)?\s*(class|interface|object|enum\s+class)\s+(\w+)`)
+	ktVarRe   = regexp.MustCompile(`^\s*(?:val|var)\s+(\w+)\s*[:=]`)
+)
+
+func (kotlinParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		if m := ktFunRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolFunction, File: relPath, Line: ln, Language: "kotlin"})
+			knownDefs[m[1]] = true
+		}
+		if m := ktClassRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[2], Kind: SymbolClass, File: relPath, Line: ln, Language: "kotlin"})
+			knownDefs[m[2]] = true
+		}
+		if m := ktVarRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "kotlin"})
+			knownDefs[m[1]] = true
+		}
+	}
+	for i, line := range lines {
+		for name := range knownDefs {
+			if containsWord(line, name) {
+				isDefLine := false
+				for _, s := range symbols {
+					if s.Name == name && s.Line == i+1 {
+						isDefLine = true
+						break
+					}
+				}
+				if !isDefLine {
+					references = append(references, Reference{Symbol: name, File: relPath, Line: i + 1})
+				}
+			}
+		}
+	}
+	return symbols, references
+}
+
+// --- Java ---
+
+type javaParser struct{}
+
+var (
+	javaClassRe  = regexp.MustCompile(`^\s*(?:public|private|protected|abstract|final|static)?\s*(class|interface|enum|record)\s+(\w+)`)
+	javaMethodRe = regexp.MustCompile(`^\s*(?:public|private|protected|static|final|abstract|synchronized)?\s+(?:[\w<>\[\],\s]+)\s+(\w+)\s*\(`)
+	javaVarRe    = regexp.MustCompile(`^\s*(?:final\s+)?(?:[\w<>\[\]]+)\s+(\w+)\s*=`)
+)
+
+func (javaParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		if m := javaClassRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[2], Kind: SymbolClass, File: relPath, Line: ln, Language: "java"})
+			knownDefs[m[2]] = true
+			continue
+		}
+		// Methods are tricky with regex; match lines that look like method declarations.
+		// Skip lines that are actually control statements (if, for, while, switch, catch).
+		if m := javaMethodRe.FindStringSubmatch(line); m != nil {
+			name := m[1]
+			// Filter out common false positives.
+			if name != "if" && name != "for" && name != "while" && name != "switch" && name != "catch" && name != "return" && name != "new" {
+				symbols = append(symbols, Symbol{Name: name, Kind: SymbolMethod, File: relPath, Line: ln, Language: "java"})
+				knownDefs[name] = true
+			}
+		}
+	}
+	for i, line := range lines {
+		for name := range knownDefs {
+			if containsWord(line, name) {
+				isDefLine := false
+				for _, s := range symbols {
+					if s.Name == name && s.Line == i+1 {
+						isDefLine = true
+						break
+					}
+				}
+				if !isDefLine {
+					references = append(references, Reference{Symbol: name, File: relPath, Line: i + 1})
+				}
+			}
+		}
+	}
+	return symbols, references
+}
+
+// --- C# ---
+
+type csharpParser struct{}
+
+var (
+	csClassRe  = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|sealed|abstract|partial)?\s*(?:class|interface|struct|record|enum)\s+(\w+)`)
+	csMethodRe = regexp.MustCompile(`^\s*(?:public|private|protected|internal|static|virtual|override|abstract|async|sealed)?\s+(?:[\w<>\[\],\s]+)\s+(\w+)\s*\(`)
+	csVarRe    = regexp.MustCompile(`^\s*(?:var|int|string|bool|double|float|decimal|long)\s+(\w+)\s*=`)
+)
+
+func (csharpParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		if m := csClassRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolClass, File: relPath, Line: ln, Language: "csharp"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		if m := csMethodRe.FindStringSubmatch(line); m != nil {
+			name := m[1]
+			if name != "if" && name != "for" && name != "foreach" && name != "while" && name != "switch" && name != "catch" && name != "using" && name != "return" {
+				symbols = append(symbols, Symbol{Name: name, Kind: SymbolMethod, File: relPath, Line: ln, Language: "csharp"})
+				knownDefs[name] = true
+			}
+		}
+		if m := csVarRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "csharp"})
+			knownDefs[m[1]] = true
+		}
+	}
+	for i, line := range lines {
+		for name := range knownDefs {
+			if containsWord(line, name) {
+				isDefLine := false
+				for _, s := range symbols {
+					if s.Name == name && s.Line == i+1 {
+						isDefLine = true
+						break
+					}
+				}
+				if !isDefLine {
+					references = append(references, Reference{Symbol: name, File: relPath, Line: i + 1})
+				}
+			}
+		}
+	}
+	return symbols, references
+}
+
+// --- PHP ---
+
+type phpParser struct{}
+
+var (
+	phpFunRe   = regexp.MustCompile(`^\s*(?:public|private|protected|static|final|abstract)?\s*function\s+(\w+)\s*\(`)
+	phpClassRe = regexp.MustCompile(`^\s*(?:final|abstract)?\s*(class|interface|trait|enum)\s+(\w+)`)
+	phpVarRe   = regexp.MustCompile(`^\s*(?:public|private|protected|static)?\s*\$(\w+)\s*=`)
+	phpConstRe = regexp.MustCompile(`^\s*const\s+(\w+)\s*=`)
+)
+
+func (phpParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		if m := phpFunRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolFunction, File: relPath, Line: ln, Language: "php"})
+			knownDefs[m[1]] = true
+		}
+		if m := phpClassRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[2], Kind: SymbolClass, File: relPath, Line: ln, Language: "php"})
+			knownDefs[m[2]] = true
+		}
+		if m := phpVarRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: "$" + m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "php"})
+			knownDefs["$"+m[1]] = true
+		}
+		if m := phpConstRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "php"})
+			knownDefs[m[1]] = true
+		}
+	}
+	for i, line := range lines {
+		for name := range knownDefs {
+			if containsWord(line, name) {
+				isDefLine := false
+				for _, s := range symbols {
+					if s.Name == name && s.Line == i+1 {
+						isDefLine = true
+						break
+					}
+				}
+				if !isDefLine {
+					references = append(references, Reference{Symbol: name, File: relPath, Line: i + 1})
+				}
+			}
+		}
+	}
+	return symbols, references
 }
