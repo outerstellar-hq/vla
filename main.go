@@ -142,7 +142,14 @@ func runAgent() {
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
 
-	// Use readline for interactive input (line editing, history, Ctrl+C).
+	// Use the TUI for interactive terminals; fall back to readline for piped
+	// input or when the terminal doesn't support raw mode.
+	if isInteractive() {
+		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr)
+		return
+	}
+
+	// Fallback: readline mode.
 	rl, err := newReadline()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: readline unavailable (%v), using plain input\n", err)

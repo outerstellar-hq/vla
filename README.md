@@ -2,16 +2,16 @@
 
 A CLI-based agentic coding harness with persistent memory and LSP-backed code intelligence. Named after the Very Large Array: multiple tools working together to see deep into a codebase.
 
-**142 deterministic tests. Zero external dependencies. Pure Go stdlib.**
+**237 deterministic tests. Full-screen TUI. MCP support. LSP integration.**
 
 ## What makes VLA different
 
-1. **IDE-grade tool space.** 20 built-in tools: file read/write/update/delete, list, search, git, web, memory, navigation.
-2. **Persistent memory.** The agent remembers across sessions. Memories are stored per-project with embedding-based semantic search, auto-injected into context before each LLM call. Inspired by Memwizard.
-3. **LSP-backed navigation.** When a language server (gopls, pyright) is available, go-to-definition, find-references, hover, and diagnostics use real LSP — the same engine that powers VS Code. Falls back to a regex-based indexer when no server is installed.
-4. **Live background index.** A polling watcher maintains a real-time symbol/call-graph index even without LSP.
-5. **Ctrl+click / Ctrl+f navigation.** `go_to_definition` and `find_references` like an IDE.
-6. **Web search + web read.** Built-in, no API key required.
+1. **Full-screen TUI.** A bubbletea terminal interface with scrollable conversation pane, streaming responses, multi-line input, and status bar — like Claude Code or OpenCode.
+2. **MCP support.** Connect external tools via Model Context Protocol — same protocol as Claude Code, Cursor, OpenCode. Any MCP server plugs in via `.vla/mcp.json`.
+3. **IDE-grade tool space.** 20+ built-in tools: file, search, git, web, memory, navigation, plus unlimited MCP tools.
+4. **Persistent memory.** The agent remembers across sessions. Memories are stored per-project with embedding-based semantic search, auto-injected into context before each LLM call.
+5. **LSP-backed navigation.** When a language server (gopls, pyright) is available, go-to-definition, find-references, hover, and diagnostics use real LSP. Falls back to a regex-based indexer.
+6. **150+ providers.** Auto-configured via models.dev — `vla use openai/gpt-4o` and you're running.
 7. **Encapsulated tools.** Every tool is a self-contained Go struct in its own file.
 
 ## Quick start
@@ -65,20 +65,69 @@ cp config.json.example config.json  # edit with your OpenAI-compatible API key
 | `web_search` | Search the web (DuckDuckGo, no API key) |
 | `web_read` | Fetch a URL, strip HTML to text |
 
-## Architecture
+## MCP (external tools)
+
+VLA supports any MCP server via `.vla/mcp.json`:
+
+```json
+{
+  "servers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {"GITHUB_TOKEN": "ghp_xxx"}
+    }
+  }
+}
+```
+
+On launch, VLA starts all MCP servers, performs the handshake, and registers their tools alongside the built-in tools. MCP tools are prefixed with the server name (e.g. `github__create_issue`) to avoid collisions. See `.vla/mcp.json.example` for more.
+
+## TUI (terminal interface)
+
+When launched in a terminal, VLA uses a full-screen bubbletea interface:
 
 ```
-main.go                  → flags, config, session, indexer, LSP, memory, loop
+┌─────────────────────────────────────────────────────┐
+│ vla │ gpt-4o │ 24 tools │ session 20260703T150000Z  │ ← status bar
+├─────────────────────────────────────────────────────┤
+│ You: Fix the login bug in auth.py                    │
+│                                                      │
+│ VLA: I'll investigate the auth module...▌           │ ← streaming
+│                                                      │
+│ ⚙ [tool read_file → ...file contents...]             │
+│                                                      │
+├─────────────────────────────────────────────────────┤
+│ ╭──────────────────────────────────────────────────╮ │
+│ │ Send a message... (Ctrl+J to submit, Ctrl+C quit)│ │ ← input
+│ ╰──────────────────────────────────────────────────╯ │
+└─────────────────────────────────────────────────────┘
+```
+
+- **Ctrl+J**: submit input
+- **Ctrl+C**: quit
+- Arrow keys / Page Up/Down: scroll conversation history
+- When stdin is piped (`echo "fix bug" | vla`), falls back to readline/plain mode
+
+
+
+```
+main.go                  → subcommand routing (models, use, default=agent)
+tui_runner.go            → full-screen TUI launcher (bubbletea)
+input.go                 → readline wrapper (fallback UI)
 internal/agent/          → core loop + message types + context injection
+internal/tui/            → bubbletea TUI (conversation, streaming, input)
+internal/mcp/            → MCP client + tool adapter + server manager
 internal/llm/            → OpenAI-compatible streaming client (SSE)
 internal/lsp/            → LSP client (JSON-RPC) + process manager
 internal/memory/         → persistent memory store + embeddings + hybrid search
+internal/modelsdev/      → models.dev catalog client + CLI commands
 internal/session/        → session lifecycle + NDJSON transcript
 internal/indexer/        → regex symbol index + polling watcher
-internal/tools/builtin/  → all 20 tools (one file each)
+internal/tools/builtin/  → all 20 built-in tools (one file each)
 internal/compaction/     → context-window compaction
 internal/fsutil/         → path confinement
-internal/app/            → wiring (config discovery, tool registration)
+internal/app/            → wiring (config discovery, tool registration, resume)
 internal/config/         → config.json loader
 ```
 
