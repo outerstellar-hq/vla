@@ -8,3 +8,5 @@ config.json
 
 # Go workspace cruft
 vendor/
+cover.out
+cover_lsp.out
