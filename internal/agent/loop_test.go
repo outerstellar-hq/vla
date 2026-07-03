@@ -319,5 +319,176 @@ func TestLoop_CompactionSummarizerReceivesOldTurns(t *testing.T) {
 	}
 }
 
+// TestLoop_PersistsTurnsToTranscript verifies that when a TranscriptWriter
+// is set, every turn (user, assistant, tool) is written to it.
+func TestLoop_PersistsTurnsToTranscript(t *testing.T) {
+	srv := streamingServer(t, []string{
+		`{"choices":[{"delta":{"role":"assistant","content":"hello"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	})
+	defer srv.Close()
+
+	var written []map[string]any
+	writer := func(turn map[string]any) error {
+		written = append(written, turn)
+		return nil
+	}
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+	loop.SetTranscriptWriter(writer)
+
+	var output strings.Builder
+	if err := loop.Run(strings.NewReader("hi\n\n"), &output); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Should have: user message + assistant message = 2 turns.
+	if len(written) != 2 {
+		t.Fatalf("expected 2 persisted turns, got %d: %+v", len(written), written)
+	}
+	if written[0]["role"] != "user" {
+		t.Errorf("turn 0 role = %v, want user", written[0]["role"])
+	}
+	if written[0]["content"] != "hi" {
+		t.Errorf("turn 0 content = %v", written[0]["content"])
+	}
+	if written[1]["role"] != "assistant" {
+		t.Errorf("turn 1 role = %v, want assistant", written[1]["role"])
+	}
+	if written[1]["content"] != "hello" {
+		t.Errorf("turn 1 content = %v", written[1]["content"])
+	}
+	// Every turn must have a timestamp.
+	for i, turn := range written {
+		if turn["timestamp"] == nil || turn["timestamp"] == "" {
+			t.Errorf("turn %d missing timestamp", i)
+		}
+		if turn["type"] != "turn" {
+			t.Errorf("turn %d type = %v, want 'turn'", i, turn["type"])
+		}
+	}
+}
+
+// TestLoop_PersistsToolCallsAndToolResults verifies that tool calls and their
+// results are persisted correctly.
+func TestLoop_PersistsToolCallsAndToolResults(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		if callCount == 1 {
+			w.Write([]byte(`data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"echo","arguments":"{\"text\":\"hi\"}"}}]}}]}` + "\n\n"))
+			w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n"))
+		} else {
+			w.Write([]byte(`data: {"choices":[{"delta":{"role":"assistant","content":"done"}}]}` + "\n\n"))
+			w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n"))
+		}
+		w.Write([]byte("data: [DONE]\n\n"))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	var written []map[string]any
+	writer := func(turn map[string]any) error {
+		written = append(written, turn)
+		return nil
+	}
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	_ = reg.Register(builtin.Echo{})
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+	loop.SetTranscriptWriter(writer)
+
+	var output strings.Builder
+	_ = loop.Run(strings.NewReader("echo hi\n\n"), &output)
+
+	// Expected: user, assistant (with tool_calls), tool result, assistant (final) = 4 turns.
+	if len(written) != 4 {
+		t.Fatalf("expected 4 turns, got %d", len(written))
+	}
+	// Turn 1 (assistant) must have tool_calls.
+	assistantTurn := written[1]
+	tcs, ok := assistantTurn["tool_calls"].([]agent.ToolCall)
+	if !ok {
+		t.Errorf("expected tool_calls in assistant turn, got %T", assistantTurn["tool_calls"])
+	} else if len(tcs) != 1 {
+		t.Errorf("expected 1 tool call, got %d", len(tcs))
+	}
+	// Turn 2 (tool result) must have tool_call_id.
+	toolTurn := written[2]
+	if toolTurn["role"] != "tool" {
+		t.Errorf("turn 2 role = %v, want tool", toolTurn["role"])
+	}
+	if toolTurn["tool_call_id"] != "c1" {
+		t.Errorf("turn 2 tool_call_id = %v, want c1", toolTurn["tool_call_id"])
+	}
+	if toolTurn["content"] != "hi" {
+		t.Errorf("turn 2 content = %v, want 'hi'", toolTurn["content"])
+	}
+}
+
+// TestLoop_LoadMessagesResumes verifies that pre-loaded messages are part of
+// the conversation sent to the LLM (the resume path).
+func TestLoop_LoadMessagesResumes(t *testing.T) {
+	var lastRequestBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := make([]byte, r.ContentLength)
+		r.Body.Read(body)
+		lastRequestBody = string(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		w.Write([]byte(`data: {"choices":[{"delta":{"role":"assistant","content":"continued"}}]}` + "\n\n"))
+		w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+
+	// Simulate a resumed conversation.
+	loop.LoadMessages([]agent.Message{
+		{Role: agent.RoleUser, Content: "previous question"},
+		{Role: agent.RoleAssistant, Content: "previous answer"},
+	})
+
+	var output strings.Builder
+	_ = loop.Run(strings.NewReader("new question\n\n"), &output)
+
+	// The request body must contain both the old and new messages.
+	if !strings.Contains(lastRequestBody, "previous question") {
+		t.Error("resumed messages not sent to LLM")
+	}
+	if !strings.Contains(lastRequestBody, "new question") {
+		t.Error("new message not sent to LLM")
+	}
+}
+
+// TestLoop_NoWriterDoesntPanic verifies the loop works fine without persistence.
+func TestLoop_NoWriterDoesntPanic(t *testing.T) {
+	srv := streamingServer(t, []string{
+		`{"choices":[{"delta":{"role":"assistant","content":"ok"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	})
+	defer srv.Close()
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+	// No SetTranscriptWriter call — writer stays nil.
+
+	var output strings.Builder
+	err := loop.Run(strings.NewReader("hi\n\n"), &output)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 // helper for multiple-tool-call test to satisfy unused import
 var _ = fmt.Sprintf

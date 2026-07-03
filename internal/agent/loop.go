@@ -6,9 +6,16 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/abrandt/vla/internal/tools"
 )
+
+// TranscriptWriter persists a message to the on-disk transcript. It is
+// satisfied by a closure wrapping session.Session.Append; defined here to
+// avoid an import cycle (session doesn't import agent, but we keep it clean).
+// If nil, messages are not persisted (in-memory only).
+type TranscriptWriter func(turn map[string]any) error
 
 // Streamer is the minimal LLM-client surface the loop depends on. It is
 // satisfied by *llm.Client; defining it here breaks what would otherwise be
@@ -34,7 +41,8 @@ type Loop struct {
 	registry   *tools.Registry
 	summarizer Summarizer
 	compactor  Compactor
-	injector   ContextInjector // optional; nil = no context injection
+	injector   ContextInjector  // optional; nil = no context injection
+	writer     TranscriptWriter // optional; nil = no persistence
 	threshold  int
 	messages   []Message
 }
@@ -58,6 +66,39 @@ func (l *Loop) SetContextInjector(inj ContextInjector) {
 	l.injector = inj
 }
 
+// SetTranscriptWriter installs a persistence hook. Every message (user,
+// assistant, tool result) is written to the transcript as it happens.
+// Must be called before Run.
+func (l *Loop) SetTranscriptWriter(w TranscriptWriter) {
+	l.writer = w
+}
+
+// LoadMessages restores the in-memory message list from a prior session.
+// Call this before Run to resume a conversation (--resume).
+func (l *Loop) LoadMessages(msgs []Message) {
+	l.messages = msgs
+}
+
+// persist writes one message to the transcript if a writer is configured.
+func (l *Loop) persist(role Role, content string, toolCalls []ToolCall, toolCallID string) {
+	if l.writer == nil {
+		return
+	}
+	turn := map[string]any{
+		"type":      "turn",
+		"role":      string(role),
+		"content":   content,
+		"timestamp": nowISO(),
+	}
+	if len(toolCalls) > 0 {
+		turn["tool_calls"] = toolCalls
+	}
+	if toolCallID != "" {
+		turn["tool_call_id"] = toolCallID
+	}
+	_ = l.writer(turn) // best-effort; don't crash the loop on write failure
+}
+
 // Run reads user messages from in (one per blank-line-terminated block) and
 // writes assistant responses + tool results to out. Continues reading input
 // until EOF or error.
@@ -78,6 +119,7 @@ func (l *Loop) Run(in io.Reader, out io.Writer) error {
 		}
 
 		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})
+		l.persist(RoleUser, text, nil, "")
 		if err := l.turn(out); err != nil {
 			return err
 		}
@@ -101,6 +143,7 @@ func (l *Loop) turn(out io.Writer) error {
 			return err
 		}
 		l.messages = append(l.messages, msg)
+		l.persist(RoleAssistant, msg.Content, msg.ToolCalls, "")
 
 		if len(msg.ToolCalls) == 0 {
 			return nil
@@ -113,6 +156,7 @@ func (l *Loop) turn(out io.Writer) error {
 				Content:    result,
 				ToolCallID: tc.ID,
 			})
+			l.persist(RoleTool, result, nil, tc.ID)
 			fmt.Fprintf(out, "[tool %s → %s]\n", tc.Function.Name, truncate(result, 200))
 		}
 	}
@@ -181,4 +225,9 @@ func lastUserContent(msgs []Message) string {
 		}
 	}
 	return ""
+}
+
+// nowISO returns the current time in RFC 3339 format for transcript timestamps.
+func nowISO() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }
