@@ -14,9 +14,10 @@ import (
 // The poll interval is a trade-off: shorter = more responsive, more CPU.
 //
 // Usage:
-//   w := NewWatcher(indexer, 5*time.Second)
-//   w.Start()
-//   defer w.Stop()
+//
+//	w := NewWatcher(indexer, 5*time.Second)
+//	w.Start()
+//	defer w.Stop()
 type Watcher struct {
 	indexer  *Indexer
 	interval time.Duration

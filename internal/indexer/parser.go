@@ -107,10 +107,10 @@ func (pythonParser) Parse(source, relPath string) ([]Symbol, []Reference) {
 type goParser struct{}
 
 var (
-	goFuncRe   = regexp.MustCompile(`^func\s+(?:\([^)]*\)\s+)?(\w+)\s*\(`)
-	goTypeRe   = regexp.MustCompile(`^type\s+(\w+)\s+`)
-	goVarRe    = regexp.MustCompile(`^var\s+(\w+)\s+`)
-	goConstRe  = regexp.MustCompile(`^const\s+(\w+)\s+`)
+	goFuncRe  = regexp.MustCompile(`^func\s+(?:\([^)]*\)\s+)?(\w+)\s*\(`)
+	goTypeRe  = regexp.MustCompile(`^type\s+(\w+)\s+`)
+	goVarRe   = regexp.MustCompile(`^var\s+(\w+)\s+`)
+	goConstRe = regexp.MustCompile(`^const\s+(\w+)\s+`)
 )
 
 func (goParser) Parse(source, relPath string) ([]Symbol, []Reference) {

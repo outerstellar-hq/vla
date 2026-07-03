@@ -11,7 +11,7 @@ type stubTool struct {
 	schema map[string]any
 }
 
-func (s *stubTool) Name() string          { return s.name }
+func (s *stubTool) Name() string           { return s.name }
 func (s *stubTool) Schema() map[string]any { return s.schema }
 func (s *stubTool) Execute(args json.RawMessage) (string, error) {
 	return "ok", nil

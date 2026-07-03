@@ -14,11 +14,11 @@ import "sync"
 type SymbolKind string
 
 const (
-	SymbolFunction  SymbolKind = "function"
-	SymbolClass     SymbolKind = "class"
-	SymbolMethod    SymbolKind = "method"
-	SymbolVariable  SymbolKind = "variable"
-	SymbolImport    SymbolKind = "import"
+	SymbolFunction SymbolKind = "function"
+	SymbolClass    SymbolKind = "class"
+	SymbolMethod   SymbolKind = "method"
+	SymbolVariable SymbolKind = "variable"
+	SymbolImport   SymbolKind = "import"
 )
 
 // Symbol is a definition found in the codebase: a function, class, method,
@@ -41,9 +41,9 @@ type Reference struct {
 // Index is the in-memory symbol/reference database. It is safe for
 // concurrent read access. Writes happen during indexing (single goroutine).
 type Index struct {
-	mu        sync.RWMutex
-	symbols   map[string][]Symbol    // keyed by symbol name
-	byFile    map[string][]Symbol    // keyed by file path
+	mu         sync.RWMutex
+	symbols    map[string][]Symbol    // keyed by symbol name
+	byFile     map[string][]Symbol    // keyed by file path
 	references map[string][]Reference // keyed by symbol name
 }
 

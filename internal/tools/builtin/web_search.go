@@ -42,8 +42,8 @@ func (WebSearch) Schema() map[string]any {
 
 // SearchResult is one hit from a web search.
 type SearchResult struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
 	Snippet string `json:"snippet,omitempty"`
 }
 

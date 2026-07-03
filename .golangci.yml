@@ -1,0 +1,25 @@
+run:
+  timeout: 5m
+  go: "1.26"
+
+linters:
+  enable:
+    - errcheck       # catch ignored errors
+    - govet          # go vet
+    - ineffassign    # detect ineffectual assignments
+    - staticcheck    # comprehensive static analysis
+    - unused         # find unused code
+    - misspell       # catch typos in comments/strings
+    - revive         # golint successor — style + correctness
+    - gofmt          # enforce formatting
+    - goimports      # enforce import grouping
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/abrandt/vla
+
+issues:
+  # Don't auto-exclude anything — surface everything for review.
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

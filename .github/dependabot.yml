@@ -1,0 +1,34 @@
+version: 2
+
+# Dependabot groups ALL Go dependency updates into a single PR per week,
+# rather than one PR per dependency. This keeps the PR queue clean — one
+# ticket to review and merge, not a dozen.
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    # Group everything into one PR. Add individual ignore rules below if a
+    # specific major version needs its own PR.
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: deps
+      include: scope
+
+  # Keep GitHub Actions versions current too, in their own group.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: ci
+      include: scope
