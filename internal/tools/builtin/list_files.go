@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/abrandt/vla/internal/fsutil"
+	"github.com/abrandt/vla/internal/gitignore"
 )
 
 // ListFiles walks a directory tree (or the whole project if path is empty)
@@ -44,6 +45,7 @@ func (l ListFiles) Execute(args json.RawMessage) (string, error) {
 	}
 
 	var files []string
+	gi := gitignore.Load(l.Ctx.BaseDir)
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip unreadable entries
@@ -51,9 +53,12 @@ func (l ListFiles) Execute(args json.RawMessage) (string, error) {
 		rel, _ := filepath.Rel(l.Ctx.BaseDir, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if ignoredDir(rel) {
+			if ignoredDir(rel) || gi.IsIgnored(rel, true) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if gi.IsIgnored(rel, false) {
 			return nil
 		}
 		files = append(files, rel)

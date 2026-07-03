@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/abrandt/vla/internal/fsutil"
+	"github.com/abrandt/vla/internal/gitignore"
 )
 
 // Search does a codebase-wide text search (the "ctrl+f" tool). If ripgrep
@@ -167,15 +168,20 @@ func searchNative(baseDir, dir, pattern string, regex bool, max int) ([]string, 
 	}
 
 	var results []string
+	gi := gitignore.Load(baseDir)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
+		rel, _ := filepath.Rel(baseDir, path)
+		relSlash := filepath.ToSlash(rel)
 		if d.IsDir() {
-			rel, _ := filepath.Rel(baseDir, path)
-			if ignoredDir(filepath.ToSlash(rel)) {
+			if ignoredDir(relSlash) || gi.IsIgnored(relSlash, true) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if gi.IsIgnored(relSlash, false) {
 			return nil
 		}
 		if isBinaryExt(filepath.Ext(path)) {

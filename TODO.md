@@ -168,13 +168,11 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 15. .gitignore Awareness
-**What:** `list_files` and `search` should respect the project's `.gitignore` instead of the hardcoded ignore list.
-
-**Where:**
-- `internal/tools/builtin/` — parse `.gitignore` in `list_files.go` and `search.go`
-
-**Why:** Currently `dist/`, `build/` etc. are skipped via a hardcoded list. A project might gitignore `coverage/`, `tmp/`, or custom directories that VLA would still scan.
+### 15. .gitignore Awareness — DONE
+- [x] `internal/gitignore/` — reads .gitignore, supports exact names, wildcards, dir patterns, negation
+- [x] `list_files` skips gitignored directories and files
+- [x] `search` (native fallback) skips gitignored directories and files
+- [x] Combined with the hardcoded ignore list (defense in depth)
 
 ---
 
