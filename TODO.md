@@ -86,15 +86,11 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 8. Cost Tracking
-**What:** Track token usage and cost per session. Display running total in the status bar. Store per-session cost in the transcript metadata.
-
-**Where:**
-- `internal/llm/client.go` — parse `usage` from the API response (prompt_tokens, completion_tokens)
-- `internal/cost/` — new package that maps model → pricing (from models.dev) and accumulates
-- `internal/tui/model.go` — show "$0.04 | 12K tokens" in status bar
-
-**Why:** Users need to know how much a session costs. models.dev gives us pricing data. The API returns token counts. Connecting them is straightforward.
+### 8. Cost Tracking — DONE
+- [x] LLM client requests `stream_options.include_usage: true`
+- [x] Parses `usage` from the final SSE chunk (prompt/completion/total tokens)
+- [x] Accumulates across all API calls in the session (`Client.TotalUsage()`)
+- [x] `/cost` slash command shows token usage + estimated cost
 
 ---
 

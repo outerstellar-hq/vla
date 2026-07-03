@@ -21,9 +21,11 @@ type Context struct {
 	Model          string
 	SessionID      string
 	ToolCount      int
-	MemSearch      func(query string) (string, error)   // memory_search shortcut
-	MemSave        func(content string) (string, error) // memory_save shortcut
-	TriggerCompact func()                               // manually trigger compaction
+	MemSearch      func(query string) (string, error)     // memory_search shortcut
+	MemSave        func(content string) (string, error)   // memory_save shortcut
+	TriggerCompact func()                                 // manually trigger compaction
+	GetUsage       func() (prompt, completion, total int) // token usage
+	GetCost        func() float64                         // accumulated cost in USD
 }
 
 // Result is the output of a slash command.
@@ -75,6 +77,9 @@ func Execute(input string, ctx Context) Result {
 	case "/session":
 		return Result{Output: fmt.Sprintf("Session: %s\nModel: %s\nTools: %d", ctx.SessionID, ctx.Model, ctx.ToolCount), Handled: true}
 
+	case "/cost":
+		return executeCost(ctx)
+
 	case "/clear":
 		return Result{Output: "Use Ctrl+C to exit and start a new session.", Handled: true}
 
@@ -93,7 +98,7 @@ func helpText() string {
   /model [name]      Show or change the model (requires restart)
   /memory <cmd>      Memory operations (see below)
   /compact           Manually trigger context compaction
-  /session           Show session info
+  /cost              Show token usage and estimated cost
   /clear             Exit and start fresh (Ctrl+C)
 
 Memory commands:
@@ -117,6 +122,23 @@ func listTools(ctx Context) string {
 	}
 	sort.Strings(names)
 	return fmt.Sprintf("%d tools:\n  %s", len(names), strings.Join(names, "\n  "))
+}
+
+func executeCost(ctx Context) Result {
+	var lines []string
+	if ctx.GetUsage != nil {
+		prompt, completion, total := ctx.GetUsage()
+		lines = append(lines, fmt.Sprintf("Tokens: %d prompt + %d completion = %d total",
+			prompt, completion, total))
+	}
+	if ctx.GetCost != nil {
+		cost := ctx.GetCost()
+		lines = append(lines, fmt.Sprintf("Estimated cost: $%.4f", cost))
+	}
+	if len(lines) == 0 {
+		return Result{Output: "Cost tracking not available.", Handled: true}
+	}
+	return Result{Output: strings.Join(lines, "\n"), Handled: true}
 }
 
 func executeMemory(args []string, ctx Context) Result {

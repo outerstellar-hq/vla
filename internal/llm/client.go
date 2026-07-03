@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abrandt/vla/internal/agent"
@@ -19,10 +20,19 @@ import (
 
 // Client is an OpenAI-compatible streaming chat-completions client.
 type Client struct {
-	apiKey  string
-	baseURL string
-	model   string
-	http    *http.Client
+	apiKey     string
+	baseURL    string
+	model      string
+	http       *http.Client
+	usageMu    sync.Mutex
+	totalUsage Usage
+}
+
+// TotalUsage returns accumulated token usage across all calls.
+func (c *Client) TotalUsage() Usage {
+	c.usageMu.Lock()
+	defer c.usageMu.Unlock()
+	return c.totalUsage
 }
 
 // NewClient returns a streaming client for the given config. The HTTP client
@@ -39,10 +49,22 @@ func NewClient(apiKey, baseURL, model string) *Client {
 
 // request is the body posted to /chat/completions.
 type request struct {
-	Model    string           `json:"model"`
-	Messages []agent.Message  `json:"messages"`
-	Tools    []map[string]any `json:"tools,omitempty"`
-	Stream   bool             `json:"stream"`
+	Model         string           `json:"model"`
+	Messages      []agent.Message  `json:"messages"`
+	Tools         []map[string]any `json:"tools,omitempty"`
+	Stream        bool             `json:"stream"`
+	StreamOptions *streamOptions   `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+// Usage tracks token usage for one API call.
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 // streamChunk models the relevant fields of one SSE chunk.
@@ -63,6 +85,7 @@ type streamChunk struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // Stream sends messages to the model, streams text deltas to os.Stdout as they
@@ -80,10 +103,11 @@ func (c *Client) Stream(messages []agent.Message, toolDefs []map[string]any) (ag
 // and for the summarization call during compaction, which uses io.Discard).
 func (c *Client) StreamTo(messages []agent.Message, toolDefs []map[string]any, out io.Writer) (agent.Message, error) {
 	body, err := json.Marshal(request{
-		Model:    c.model,
-		Messages: messages,
-		Tools:    toolDefs,
-		Stream:   true,
+		Model:         c.model,
+		Messages:      messages,
+		Tools:         toolDefs,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
 	})
 	if err != nil {
 		return agent.Message{}, fmt.Errorf("llm: marshal request: %w", err)
@@ -108,12 +132,23 @@ func (c *Client) StreamTo(messages []agent.Message, toolDefs []map[string]any, o
 		return agent.Message{}, fmt.Errorf("llm: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 
-	return parseSSE(resp.Body, out)
+	msg, usage, err := parseSSEWithUsage(resp.Body, out)
+	if err != nil {
+		return msg, err
+	}
+	if usage != nil {
+		c.usageMu.Lock()
+		c.totalUsage.PromptTokens += usage.PromptTokens
+		c.totalUsage.CompletionTokens += usage.CompletionTokens
+		c.totalUsage.TotalTokens += usage.TotalTokens
+		c.usageMu.Unlock()
+	}
+	return msg, nil
 }
 
-// parseSSE reads the SSE stream, writes text deltas to out (if non-nil), and
-// accumulates the assistant message (content + assembled tool calls).
-func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
+// parseSSEWithUsage reads the SSE stream, writes text deltas to out, accumulates
+// the assistant message, and captures usage from the final chunk.
+func parseSSEWithUsage(r io.Reader, out io.Writer) (agent.Message, *Usage, error) {
 	msg := agent.Message{Role: agent.RoleAssistant}
 	type tcAcc struct {
 		ID   string
@@ -122,6 +157,7 @@ func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
 	}
 	acc := map[int]*tcAcc{}
 	var order []int
+	var usage *Usage
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -140,7 +176,11 @@ func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
 
 		var chunk streamChunk
 		if err := json.Unmarshal(payload, &chunk); err != nil {
-			return msg, fmt.Errorf("llm: parse SSE chunk: %w", err)
+			return msg, usage, fmt.Errorf("llm: parse SSE chunk: %w", err)
+		}
+		// Capture usage from the final chunk (sent when stream_options.include_usage=true).
+		if chunk.Usage != nil {
+			usage = chunk.Usage
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -151,7 +191,7 @@ func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
 			msg.Content += delta.Content
 			if out != nil {
 				if _, err := io.WriteString(out, delta.Content); err != nil {
-					return msg, fmt.Errorf("llm: write stream output: %w", err)
+					return msg, usage, fmt.Errorf("llm: write stream output: %w", err)
 				}
 			}
 		}
@@ -174,7 +214,7 @@ func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return msg, fmt.Errorf("llm: read stream: %w", err)
+		return msg, usage, fmt.Errorf("llm: read stream: %w", err)
 	}
 
 	for _, idx := range order {
@@ -191,5 +231,5 @@ func parseSSE(r io.Reader, out io.Writer) (agent.Message, error) {
 	if out != nil && msg.Content != "" {
 		_, _ = io.WriteString(out, "\n")
 	}
-	return msg, nil
+	return msg, usage, nil
 }

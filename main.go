@@ -191,6 +191,14 @@ func runAgent() {
 					Store: memStore, Project: projectName,
 				}}.Execute(raw)
 			},
+			GetUsage: func() (int, int, int) {
+				u := client.TotalUsage()
+				return u.PromptTokens, u.CompletionTokens, u.TotalTokens
+			},
+			GetCost: func() float64 {
+				u := client.TotalUsage()
+				return float64(u.PromptTokens)*2.5/1e6 + float64(u.CompletionTokens)*10.0/1e6
+			},
 		})
 		return result.Output, result.Handled
 	})
