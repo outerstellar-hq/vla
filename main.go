@@ -16,6 +16,8 @@ import (
 	"github.com/abrandt/vla/internal/config"
 	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/llm"
+	"github.com/abrandt/vla/internal/lsp"
+	"github.com/abrandt/vla/internal/memory"
 	"github.com/abrandt/vla/internal/tools"
 )
 
@@ -48,8 +50,9 @@ func main() {
 		}
 	}
 
-	// Start the background indexer (the live symbol/reference index).
-	ix := indexer.New(sess.CWD())
+	// Start the background indexer (regex-based symbol index).
+	baseDir := sess.CWD()
+	ix := indexer.New(baseDir)
 	if n, err := ix.Build(); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: initial index build failed: %v\n", err)
 	} else {
@@ -59,8 +62,33 @@ func main() {
 	watcher.Start()
 	defer watcher.Stop()
 
+	// Start the LSP manager (for real go-to-def, hover, diagnostics).
+	lspMgr := lsp.NewManager(lsp.DefaultSpecs())
+	defer lspMgr.Close()
+
+	// Set up memory store + embeddings.
+	memStore := memory.NewStore(memory.DefaultRoot())
+	var embedder *memory.EmbeddingClient
+	// Only enable embeddings if we have an API key.
+	if cfg.APIKey != "" {
+		embedder = memory.NewEmbeddingClient(cfg.APIKey, cfg.BaseURL, "")
+	}
+
+	projectName := func() string { return baseDir }
+
+	// Create the memory context injector — auto-injects relevant memories
+	// before each LLM call.
+	injector := newMemoryInjector(memStore, embedder, projectName)
+
 	reg := tools.NewRegistry()
-	if err := app.RegisterBuiltins(reg, sess.CWD(), ix); err != nil {
+	if err := app.RegisterBuiltins(reg, app.Deps{
+		BaseDir:    baseDir,
+		Indexer:    ix,
+		LSPManager: lspMgr,
+		MemStore:   memStore,
+		Embedder:   embedder,
+		Project:    projectName,
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: register tools: %v\n", err)
 		os.Exit(1)
 	}
@@ -68,6 +96,7 @@ func main() {
 	client := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
 	summarizer := newSummarizer(client)
 	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, compaction.CharThreshold)
+	loop.SetContextInjector(injector)
 
 	if err := loop.Run(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: %v\n", err)
@@ -75,8 +104,7 @@ func main() {
 	}
 }
 
-// newSummarizer returns the production Summarizer: it calls the LLM to
-// produce a terse summary of older conversation turns for compaction.
+// newSummarizer returns the production Summarizer for compaction.
 func newSummarizer(client *llm.Client) agent.Summarizer {
 	return func(msgs []agent.Message) (string, error) {
 		var b strings.Builder
@@ -93,5 +121,31 @@ func newSummarizer(client *llm.Client) agent.Summarizer {
 			return "", err
 		}
 		return resp.Content, nil
+	}
+}
+
+// newMemoryInjector creates a context injector that searches memories relevant
+// to the current user message and prepends them as a system message.
+func newMemoryInjector(store *memory.Store, embedder *memory.EmbeddingClient, project func() string) agent.ContextInjector {
+	return func(view []agent.Message, lastUserMessage string) []agent.Message {
+		if lastUserMessage == "" {
+			return view
+		}
+		var queryVec []float32
+		if embedder != nil {
+			queryVec, _ = embedder.Embed(lastUserMessage)
+		}
+		results, err := store.Search(project(), lastUserMessage, queryVec, 5, 0.7, 0.3)
+		if err != nil || len(results) == 0 {
+			return view
+		}
+		var b strings.Builder
+		b.WriteString("Relevant memories from previous sessions:\n\n")
+		for _, r := range results {
+			fmt.Fprintf(&b, "- %s\n", r.Memory.Content)
+		}
+		b.WriteString("\nUse these memories if relevant. Ignore if not.\n")
+		injected := append([]agent.Message{{Role: agent.RoleSystem, Content: b.String()}}, view...)
+		return injected
 	}
 }

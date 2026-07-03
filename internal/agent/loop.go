@@ -34,6 +34,7 @@ type Loop struct {
 	registry   *tools.Registry
 	summarizer Summarizer
 	compactor  Compactor
+	injector   ContextInjector // optional; nil = no context injection
 	threshold  int
 	messages   []Message
 }
@@ -49,6 +50,12 @@ func NewLoop(client Streamer, registry *tools.Registry, compactor Compactor, sum
 		summarizer: sum,
 		threshold:  threshold,
 	}
+}
+
+// SetContextInjector installs a context injector (e.g. memory auto-injection).
+// Must be called before Run.
+func (l *Loop) SetContextInjector(inj ContextInjector) {
+	l.injector = inj
 }
 
 // Run reads user messages from in (one per blank-line-terminated block) and
@@ -84,6 +91,9 @@ func (l *Loop) turn(out io.Writer) error {
 		view, err := l.compactor(l.messages, l.summarizer, l.threshold)
 		if err != nil {
 			return err
+		}
+		if l.injector != nil {
+			view = l.injector(view, lastUserContent(l.messages))
 		}
 
 		msg, err := l.client.StreamTo(view, l.registry.Schemas(), out)
@@ -159,4 +169,16 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// lastUserContent returns the content of the most recent user message, or
+// empty string if there isn't one. Used by the context injector to know what
+// the current query is about.
+func lastUserContent(msgs []Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == RoleUser {
+			return msgs[i].Content
+		}
+	}
+	return ""
 }
