@@ -31,6 +31,12 @@ func parserFor(ext string) Parser {
 		return csharpParser{}
 	case ".php":
 		return phpParser{}
+	case ".js", ".jsx", ".ts", ".tsx", ".mjs":
+		return jsParser{}
+	case ".css", ".scss", ".sass", ".less":
+		return cssParser{}
+	case ".html", ".htm":
+		return htmlParser{}
 	default:
 		return nil
 	}
@@ -295,7 +301,181 @@ func (javaParser) Parse(source, relPath string) ([]Symbol, []Reference) {
 	return symbols, references
 }
 
-// --- C# ---
+// --- JavaScript / TypeScript ---
+
+type jsParser struct{}
+
+var (
+	jsFunRe   = regexp.MustCompile(`^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)`)
+	jsClassRe = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+(\w+)`)
+	jsArrowRe = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?\(?.*?\)?\s*=>`)
+	jsConstRe = regexp.MustCompile(`^\s*(?:export\s+)?const\s+(\w+)\s*=`)
+	jsIntRe   = regexp.MustCompile(`^\s*(?:export\s+)?interface\s+(\w+)`)
+	jsTypeRe  = regexp.MustCompile(`^\s*(?:export\s+)?type\s+(\w+)\s*=`)
+)
+
+func (jsParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		if m := jsFunRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolFunction, File: relPath, Line: ln, Language: "javascript"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		if m := jsClassRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolClass, File: relPath, Line: ln, Language: "javascript"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		if m := jsArrowRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolFunction, File: relPath, Line: ln, Language: "javascript"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		if m := jsIntRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolClass, File: relPath, Line: ln, Language: "javascript"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		if m := jsTypeRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolClass, File: relPath, Line: ln, Language: "javascript"})
+			knownDefs[m[1]] = true
+			continue
+		}
+		// const declarations that aren't arrow functions.
+		if m := jsConstRe.FindStringSubmatch(line); m != nil {
+			if !knownDefs[m[1]] {
+				symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "javascript"})
+				knownDefs[m[1]] = true
+			}
+		}
+	}
+	for i, line := range lines {
+		for name := range knownDefs {
+			if containsWord(line, name) {
+				isDefLine := false
+				for _, s := range symbols {
+					if s.Name == name && s.Line == i+1 {
+						isDefLine = true
+						break
+					}
+				}
+				if !isDefLine {
+					references = append(references, Reference{Symbol: name, File: relPath, Line: i + 1})
+				}
+			}
+		}
+	}
+	return symbols, references
+}
+
+// --- CSS / SCSS / SASS / LESS ---
+
+type cssParser struct{}
+
+var (
+	cssClassRe = regexp.MustCompile(`\.([a-zA-Z_][\w-]*)`)
+	cssIdRe    = regexp.MustCompile(`#([a-zA-Z][\w-]*)`)
+	cssMixinRe = regexp.MustCompile(`@mixin\s+([\w-]+)`)
+	cssIncRe   = regexp.MustCompile(`@include\s+([\w-]+)`)
+	cssVarRe   = regexp.MustCompile(`^\s*(\$|--[\w-]+)\s*[:=]`)
+)
+
+func (cssParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	var references []Reference
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		// SCSS mixins.
+		if m := cssMixinRe.FindStringSubmatch(line); m != nil {
+			symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolFunction, File: relPath, Line: ln, Language: "css"})
+			knownDefs[m[1]] = true
+		}
+		// SCSS @include is a reference, not a definition.
+		if m := cssIncRe.FindStringSubmatch(line); m != nil {
+			references = append(references, Reference{Symbol: m[1], File: relPath, Line: ln})
+		}
+		// CSS class selectors.
+		for _, m := range cssClassRe.FindAllStringSubmatch(line, -1) {
+			name := m[1]
+			if !knownDefs[name] {
+				symbols = append(symbols, Symbol{Name: name, Kind: SymbolVariable, File: relPath, Line: ln, Language: "css"})
+				knownDefs[name] = true
+			}
+		}
+		// ID selectors.
+		for _, m := range cssIdRe.FindAllStringSubmatch(line, -1) {
+			if !knownDefs[m[1]] {
+				symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "css"})
+				knownDefs[m[1]] = true
+			}
+		}
+		// SCSS/CSS custom properties and SCSS variables.
+		if m := cssVarRe.FindStringSubmatch(line); m != nil {
+			if !knownDefs[m[1]] {
+				symbols = append(symbols, Symbol{Name: m[1], Kind: SymbolVariable, File: relPath, Line: ln, Language: "css"})
+				knownDefs[m[1]] = true
+			}
+		}
+	}
+	// @include references: link to known mixin definitions.
+	for i, line := range lines {
+		if m := cssIncRe.FindStringSubmatch(line); m != nil {
+			if knownDefs[m[1]] {
+				// Already added above, avoid double counting.
+				_ = i
+			}
+		}
+	}
+	return symbols, references
+}
+
+// --- HTML ---
+
+type htmlParser struct{}
+
+var (
+	htmlIdRe    = regexp.MustCompile(`\bid=["']([^"']+)["']`)
+	htmlClassRe = regexp.MustCompile(`\bclass=["']([^"']+)["']`)
+	htmlTagOpen = regexp.MustCompile(`<(\w+)[\s>]`)
+)
+
+func (htmlParser) Parse(source, relPath string) ([]Symbol, []Reference) {
+	var symbols []Symbol
+	lines := strings.Split(source, "\n")
+	knownDefs := map[string]bool{}
+
+	for i, line := range lines {
+		ln := i + 1
+		// IDs.
+		for _, m := range htmlIdRe.FindAllStringSubmatch(line, -1) {
+			name := "id:" + m[1]
+			if !knownDefs[name] {
+				symbols = append(symbols, Symbol{Name: name, Kind: SymbolVariable, File: relPath, Line: ln, Language: "html"})
+				knownDefs[name] = true
+			}
+		}
+		// Classes.
+		for _, m := range htmlClassRe.FindAllStringSubmatch(line, -1) {
+			for _, cls := range strings.Fields(m[1]) {
+				name := "class:" + cls
+				if !knownDefs[name] {
+					symbols = append(symbols, Symbol{Name: name, Kind: SymbolVariable, File: relPath, Line: ln, Language: "html"})
+					knownDefs[name] = true
+				}
+			}
+		}
+	}
+	return symbols, nil
+}
 
 type csharpParser struct{}
 

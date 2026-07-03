@@ -20,6 +20,7 @@ const (
 	LangJava   Language = "java"
 	LangCSharp Language = "csharp"
 	LangPHP    Language = "php"
+	LangJS     Language = "javascript"
 )
 
 // ServerSpec describes how to launch a language server for one language.
@@ -33,14 +34,13 @@ type ServerSpec struct {
 // These are only used if the server is found on PATH; the manager won't fail
 // if they're missing — navigation tools just fall back to the regex indexer.
 //
-// Server choices (same as Memwizard):
-//
 //	Python:  pyright-langserver --stdio
 //	Go:      gopls serve
-//	Kotlin:  fwcd/kotlin-language-server (java -jar server/bin/kotlin-language-server)
-//	Java:    Eclipse JDT.LS (jdtls -data <workspace>)
+//	Kotlin:  fwcd/kotlin-language-server --stdio
+//	Java:    Eclipse JDT.LS (jdtls --stdio)
 //	C#:      OmniSharp-roslyn (-lsp)
 //	PHP:     intelephense --stdio
+//	JS/TS:   typescript-language-server --stdio
 func DefaultSpecs() map[Language]ServerSpec {
 	return map[Language]ServerSpec{
 		LangPython: {Language: LangPython, Command: "pyright-langserver", Args: []string{"--stdio"}},
@@ -49,6 +49,7 @@ func DefaultSpecs() map[Language]ServerSpec {
 		LangJava:   {Language: LangJava, Command: "jdtls", Args: []string{"--stdio"}},
 		LangCSharp: {Language: LangCSharp, Command: "OmniSharp", Args: []string{"-lsp"}},
 		LangPHP:    {Language: LangPHP, Command: "intelephense", Args: []string{"--stdio"}},
+		LangJS:     {Language: LangJS, Command: "typescript-language-server", Args: []string{"--stdio"}},
 	}
 }
 
@@ -234,6 +235,10 @@ func InferLanguage(workspace string) Language {
 	// PHP: composer.json
 	if fileExists(filepath.Join(workspace, "composer.json")) {
 		return LangPHP
+	}
+	// JS/TS: package.json
+	if fileExists(filepath.Join(workspace, "package.json")) {
+		return LangJS
 	}
 	// Python: requirements.txt, setup.py, pyproject.toml
 	for _, f := range []string{"requirements.txt", "setup.py", "pyproject.toml"} {

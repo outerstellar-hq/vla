@@ -145,7 +145,7 @@ func TestIndex_SkipsUnsupportedFiles(t *testing.T) {
 	root := t.TempDir()
 	writeSrc(t, root, "a.py", "def f():\n    pass\n")
 	writeSrc(t, root, "b.txt", "not code\n")
-	writeSrc(t, root, "c.js", "function f() {}\n")
+	writeSrc(t, root, "c.exe", "binary\n")
 	ix := New(root)
 	n, _ := ix.Build()
 	if n != 1 {

@@ -101,16 +101,19 @@ type Approver interface {
 ### 6. Multi-Language Support (JS, HTML, CSS, SCSS remaining)
 **What:** Extend the indexer parser and LSP defaults to handle the remaining languages from the design doc. Kotlin, Java, C#, and PHP are DONE.
 
-**Done:**
-- [x] Kotlin: regex parser (fun, class, val/var), LSP (fwcd/kotlin-language-server), inference (build.gradle.kts)
-- [x] Java: regex parser (class, interface, method), LSP (Eclipse JDT.LS), inference (pom.xml, build.gradle)
-- [x] C#: regex parser (class, method, var), LSP (OmniSharp), inference (.csproj, .sln)
-- [x] PHP: regex parser (function, class, $var, const), LSP (intelephense), inference (composer.json)
+### 6. Multi-Language Support — DONE
 
-**Remaining:**
-- [ ] JavaScript/TypeScript: regex parser (function, const, class, export), LSP (typescript-language-server), inference (package.json)
-- [ ] CSS/SCSS: regex for selectors, no LSP needed
-- [ ] HTML: regex for element IDs, classes
+All 9 languages from the design doc + your additions are implemented:
+
+- [x] Python: regex parser (def, class, async def), LSP (pyright), inference (requirements.txt)
+- [x] Go: regex parser (func, type, var, const), LSP (gopls), inference (go.mod)
+- [x] Kotlin: regex parser (fun, class, val/var), LSP (kotlin-language-server), inference (build.gradle.kts)
+- [x] Java: regex parser (class, interface, method), LSP (Eclipse JDT.LS), inference (pom.xml)
+- [x] C#: regex parser (class, method, var), LSP (OmniSharp), inference (.csproj)
+- [x] PHP: regex parser (function, class, $var, const), LSP (intelephense), inference (composer.json)
+- [x] JavaScript/TypeScript: regex parser (function, class, const/arrow, interface, type), LSP (typescript-language-server), inference (package.json)
+- [x] CSS/SCSS: regex parser (class selectors, ID selectors, @mixin/@include, $variables)
+- [x] HTML: regex parser (id:*, class:*, prefixed to avoid collisions)
 
 ---
 
@@ -248,7 +251,7 @@ type Approver interface {
 - [x] Search tool (ripgrep + native fallback)
 - [x] Background indexer (regex-based, polling watcher, 6 languages)
 - [x] Navigation tools (go-to-def, find-references, hover, diagnostics)
-- [x] Multi-language: Python, Go, Kotlin, Java, C#, PHP (parsers + LSP specs)
+- [x] Multi-language: Python, Go, Kotlin, Java, C#, PHP, JS/TS, CSS/SCSS, HTML (9 languages, parsers + LSP specs)
 - [x] Web tools (search, read)
 - [x] Persistent memory (embeddings, hybrid search, auto-injection)
 - [x] LSP integration (gopls, pyright, warm pool, crash recovery)
