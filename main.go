@@ -18,6 +18,7 @@ import (
 	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/llm"
 	"github.com/abrandt/vla/internal/lsp"
+	"github.com/abrandt/vla/internal/mcp"
 	"github.com/abrandt/vla/internal/memory"
 	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/tools"
@@ -87,6 +88,18 @@ func runAgent() {
 	lspMgr := lsp.NewManager(lsp.DefaultSpecs())
 	defer lspMgr.Close()
 
+	// Start MCP servers (external tools from .vla/mcp.json).
+	mcpCfg, err := mcp.LoadConfig(baseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: warn: mcp config: %v\n", err)
+		mcpCfg = &mcp.ConfigFile{Servers: map[string]mcp.ServerConfig{}}
+	}
+	mcpMgr := mcp.NewManager()
+	mcpMgr.StartAll(mcpCfg, func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format, args...)
+	})
+	defer mcpMgr.Close()
+
 	// Set up memory store + embeddings.
 	memStore := memory.NewStore(memory.DefaultRoot())
 	var embedder *memory.EmbeddingClient
@@ -109,6 +122,12 @@ func runAgent() {
 		fmt.Fprintf(os.Stderr, "vla: register tools: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Register MCP tools (external tools from .vla/mcp.json).
+	if err := mcp.RegisterAll(reg, mcpMgr); err != nil {
+		fmt.Fprintf(os.Stderr, "vla: warn: mcp tool registration: %v\n", err)
+	}
+	fmt.Fprintf(os.Stderr, "vla: %d tools registered\n", len(reg.Schemas()))
 
 	client := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
 	summarizer := newSummarizer(client)

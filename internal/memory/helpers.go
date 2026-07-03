@@ -2,8 +2,10 @@ package memory
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,9 +19,15 @@ func jsonUnmarshal(data []byte, m *Memory) error {
 	return json.Unmarshal(data, m)
 }
 
-// generateID produces a timestamp-based unique ID.
+// generateID produces a unique ID: timestamp + random suffix. The random
+// suffix prevents collisions when multiple memories are saved in the same
+// nanosecond (which happens in tests and fast batch saves).
+var idCounter atomic.Uint64
+
 func generateID() string {
-	return time.Now().UTC().Format("20060102T150405.000000000Z")
+	ts := time.Now().UTC().Format("20060102T150405.000000000Z")
+	n := idCounter.Add(1)
+	return fmt.Sprintf("%s-%06d", ts, n%1000000)
 }
 
 // cosineSim computes the cosine similarity between two float32 vectors.
