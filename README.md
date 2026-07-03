@@ -18,7 +18,21 @@ A CLI-based agentic coding harness with persistent memory and LSP-backed code in
 
 ```bash
 go build -o vla .
+
+# Option A: Configure with models.dev (auto-discovers 150+ providers)
+export OPENAI_API_KEY=sk-...
+./vla use openai/gpt-4o       # writes config.json automatically
+
+# Option B: Manual config
 cp config.json.example config.json  # edit with your OpenAI-compatible API key
+./vla
+
+# Browse available models
+./vla models                    # list all providers
+./vla models openai             # list OpenAI models
+./vla models anthropic claude   # filter by name
+
+# Run the agent
 ./vla
 ```
 

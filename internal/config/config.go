@@ -9,9 +9,10 @@ import (
 
 // Config holds the LLM connection settings loaded from config.json.
 type Config struct {
-	APIKey  string `json:"api_key"`
-	BaseURL string `json:"base_url"`
-	Model   string `json:"model"`
+	APIKey       string `json:"api_key"`
+	BaseURL      string `json:"base_url"`
+	Model        string `json:"model"`
+	ContextLimit int    `json:"context_limit,omitempty"` // max context window in tokens (from models.dev, optional)
 }
 
 // Load reads, parses, and validates the config file at path.

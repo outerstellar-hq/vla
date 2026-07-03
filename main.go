@@ -3,9 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -19,10 +19,30 @@ import (
 	"github.com/abrandt/vla/internal/llm"
 	"github.com/abrandt/vla/internal/lsp"
 	"github.com/abrandt/vla/internal/memory"
+	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/tools"
 )
 
 func main() {
+	// Subcommand routing: "vla models", "vla use <provider/model>", or default (agent loop).
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "models":
+			runModelsCmd(os.Args[2:])
+			return
+		case "use":
+			runUseCmd(os.Args[2:])
+			return
+		case "version":
+			fmt.Println("vla dev")
+			return
+		}
+	}
+	runAgent()
+}
+
+// runAgent is the main agent loop (default when no subcommand is given).
+func runAgent() {
 	resume := flag.String("resume", "", "session ID to resume (default: new session)")
 	modelFlag := flag.String("model", "", "override config model for this run")
 	configFlag := flag.String("config", "", "path to config.json (default: ./config.json then ~/.vla/config.json)")
@@ -70,15 +90,11 @@ func main() {
 	// Set up memory store + embeddings.
 	memStore := memory.NewStore(memory.DefaultRoot())
 	var embedder *memory.EmbeddingClient
-	// Only enable embeddings if we have an API key.
 	if cfg.APIKey != "" {
 		embedder = memory.NewEmbeddingClient(cfg.APIKey, cfg.BaseURL, "")
 	}
 
 	projectName := func() string { return baseDir }
-
-	// Create the memory context injector — auto-injects relevant memories
-	// before each LLM call.
 	injector := app.NewMemoryInjector(memStore, embedder, projectName)
 
 	reg := tools.NewRegistry()
@@ -96,12 +112,18 @@ func main() {
 
 	client := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
 	summarizer := newSummarizer(client)
-	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, compaction.CharThreshold)
+	// Use the model's context limit for compaction threshold (75% of context
+	// window, converted to chars at ~4 chars/token). Falls back to the default
+	// if context_limit isn't set in the config.
+	threshold := compaction.CharThreshold
+	if cfg.ContextLimit > 0 {
+		threshold = (cfg.ContextLimit * 3 / 4) * 4 // 75% of tokens → chars
+	}
+	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, threshold)
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
 
 	// Use readline for interactive input (line editing, history, Ctrl+C).
-	// Falls back to plain stdin if readline init fails (e.g. piped input).
 	rl, err := newReadline()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: readline unavailable (%v), using plain input\n", err)
@@ -110,16 +132,13 @@ func main() {
 		loop.SetInput(rl)
 	}
 
-	// On resume, reload prior messages from the transcript and prepend the
-	// system prompt so the LLM still knows what it is and what tools it has.
-	// (Without this, a resumed session has no system message at all.)
+	// On resume, reload prior messages and prepend the system prompt.
 	systemMsg := agent.Message{Role: agent.RoleSystem, Content: app.SystemPrompt()}
 	if *resume != "" {
 		msgs, err := app.LoadTranscriptMessages(sess)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "vla: warn: could not load transcript: %v\n", err)
 		} else {
-			// Prepend system prompt to the resumed conversation.
 			loop.LoadMessages(append([]agent.Message{systemMsg}, msgs...))
 			fmt.Fprintf(os.Stderr, "vla: resumed %d messages\n", len(msgs))
 		}
@@ -127,8 +146,7 @@ func main() {
 		loop.LoadMessages([]agent.Message{systemMsg})
 	}
 
-	// Catch Ctrl+C for clean shutdown: stop the watcher, kill LSP servers,
-	// flush the transcript. Without this, orphan processes leak.
+	// Catch Ctrl+C for clean shutdown.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	go func() {
@@ -145,6 +163,97 @@ func main() {
 	}
 }
 
+// runModelsCmd handles `vla models [provider] [filter]`.
+func runModelsCmd(args []string) {
+	client := modelsdev.NewClient(modelsdev.DefaultCacheDir())
+	providers, err := client.Fetch()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: could not fetch model catalog: %v\n", err)
+		os.Exit(1)
+	}
+	switch len(args) {
+	case 0:
+		modelsdev.PrintProviders(providers, "")
+	case 1:
+		//vla models <provider>
+		modelsdev.PrintModels(args[0], providers, "")
+	case 2:
+		//vla models <provider> <filter>
+		modelsdev.PrintModels(args[0], providers, args[1])
+	default:
+		fmt.Fprintln(os.Stderr, "usage: vla models [provider] [filter]")
+		os.Exit(1)
+	}
+}
+
+// runUseCmd handles `vla use <provider/model>`.
+// It resolves the provider+model from models.dev, finds the API key from the
+// environment, and writes a config.json so the agent loop picks it up next run.
+func runUseCmd(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: vla use <provider/model>")
+		fmt.Fprintln(os.Stderr, "example: vla use openai/gpt-4o")
+		fmt.Fprintln(os.Stderr, "         vla use anthropic/claude-sonnet-4-5")
+		os.Exit(1)
+	}
+	spec := args[0]
+
+	client := modelsdev.NewClient(modelsdev.DefaultCacheDir())
+	providers, err := client.Fetch()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: could not fetch model catalog: %v\n", err)
+		os.Exit(1)
+	}
+
+	sel, err := modelsdev.Select(providers, spec)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: %v\n", err)
+		os.Exit(1)
+	}
+
+	if sel.APIKey == "" {
+		fmt.Fprintf(os.Stderr, "vla: no API key found for %s.\n", sel.Provider.Name)
+		if len(sel.Provider.Env) > 0 {
+			fmt.Fprintf(os.Stderr, "Set one of these environment variables:\n")
+			for _, envVar := range sel.Provider.Env {
+				fmt.Fprintf(os.Stderr, "  export %s=your-key-here\n", envVar)
+			}
+		}
+		os.Exit(1)
+	}
+
+	if sel.BaseURL == "" || sel.BaseURL == "none" {
+		fmt.Fprintf(os.Stderr, "vla: %s has no OpenAI-compatible API URL in the catalog\n", sel.Provider.Name)
+		os.Exit(1)
+	}
+
+	// Write config.json in CWD.
+	cfg := struct {
+		APIKey       string `json:"api_key"`
+		BaseURL      string `json:"base_url"`
+		Model        string `json:"model"`
+		ContextLimit int    `json:"context_limit,omitempty"`
+	}{
+		APIKey:       sel.APIKey,
+		BaseURL:      sel.BaseURL,
+		Model:        sel.ModelID,
+		ContextLimit: sel.Model.Limit.Context,
+	}
+	data, _ := jsonMarshal(cfg)
+	if err := writeFile("config.json", data); err != nil {
+		fmt.Fprintf(os.Stderr, "vla: write config.json: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("✓ config.json written for %s %s (%s)\n", sel.Provider.Name, sel.Model.Name, sel.ModelID)
+	if sel.Model.Limit.Context > 0 {
+		fmt.Printf("  context window: %d tokens\n", sel.Model.Limit.Context)
+	}
+	if sel.Model.ToolCall {
+		fmt.Printf("  tool calling: supported\n")
+	}
+	fmt.Printf("  api: %s\n", sel.BaseURL)
+}
+
 // newSummarizer returns the production Summarizer for compaction.
 func newSummarizer(client *llm.Client) agent.Summarizer {
 	return func(msgs []agent.Message) (string, error) {
@@ -157,10 +266,18 @@ func newSummarizer(client *llm.Client) agent.Summarizer {
 			Content: "Summarize the following conversation turns. Preserve: file paths mentioned, " +
 				"decisions made, errors encountered, and any incomplete tasks. Be terse.\n\n" + b.String(),
 		}}
-		resp, err := client.StreamTo(summaryReq, nil, io.Discard)
+		resp, err := client.StreamTo(summaryReq, nil, nil)
 		if err != nil {
 			return "", err
 		}
 		return resp.Content, nil
 	}
+}
+
+func jsonMarshal(v any) ([]byte, error) {
+	return json.MarshalIndent(v, "", "  ")
+}
+
+func writeFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0644)
 }
