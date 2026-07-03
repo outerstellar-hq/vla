@@ -144,17 +144,12 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 13. Hooks
-**What:** User-defined scripts that run before/after specific events (before tool call, after file write, on session start).
-
-**Where:**
-- `internal/hooks/` — new package
-- `.vla/hooks.json` — config
-
-**Examples:**
-- Run linter after every `write_file`
-- Run tests after every `update_file`
-- Notify on `git_commit`
+### 13. Hooks — DONE
+- [x] `internal/hooks/` — .vla/hooks.json with before_tool, after_tool, on_write, on_session_start events
+- [x] before_tool hooks can block tool calls (exit non-zero = blocked)
+- [x] after_tool/on_write hooks are non-blocking (run after, log errors)
+- [x] Env vars passed: VLA_EVENT, VLA_TOOL, VLA_RESULT
+- [x] Agent loop integration: HookRunner interface, runs in executeToolCall
 
 ---
 

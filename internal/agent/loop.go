@@ -23,6 +23,13 @@ type ToolApprover interface {
 	Approve(toolName string, args map[string]any, preview string) bool
 }
 
+// HookRunner executes user-defined hooks before/after tool calls.
+// Defined here to avoid importing the hooks package.
+type HookRunner interface {
+	RunBeforeTool(toolName string) error
+	RunAfterTool(toolName, result string)
+}
+
 // CommandHandler executes slash commands (/help, /tools, etc.). If set,
 // the loop intercepts user input starting with "/" and calls this instead
 // of sending the message to the LLM.
@@ -78,6 +85,7 @@ type Loop struct {
 	approver   ToolApprover          // optional; nil = no approval checks
 	permCheck  ToolPermissionChecker // optional; nil = no permission checks
 	cmdHandler CommandHandler        // optional; nil = no slash commands
+	hooks      HookRunner            // optional; nil = no hooks
 	threshold  int
 	messages   []Message
 }
@@ -126,6 +134,11 @@ func (l *Loop) SetApprover(a ToolApprover) {
 // blocked.
 func (l *Loop) SetPermissionChecker(p ToolPermissionChecker) {
 	l.permCheck = p
+}
+
+// SetHookRunner installs a hook runner for before/after tool call scripts.
+func (l *Loop) SetHookRunner(h HookRunner) {
+	l.hooks = h
 }
 
 // SetCommandHandler installs a slash command handler. Messages starting with
@@ -300,13 +313,24 @@ func (l *Loop) executeToolCall(tc ToolCall) string {
 		}
 	}
 
+	// Hook: before_tool (can block).
+	if l.hooks != nil {
+		if err := l.hooks.RunBeforeTool(tc.Function.Name); err != nil {
+			return fmt.Sprintf("Error: blocked by before_tool hook: %v", err)
+		}
+	}
+
 	tool, ok := l.registry.Get(tc.Function.Name)
 	if !ok {
 		return fmt.Sprintf("Error: unknown tool %q", tc.Function.Name)
 	}
 	result, err := tool.Execute(json.RawMessage(tc.Function.Arguments))
 	if err != nil {
-		return fmt.Sprintf("Error: %s: %v", tc.Function.Name, err)
+		result = fmt.Sprintf("Error: %s: %v", tc.Function.Name, err)
+	}
+	// Hook: after_tool (non-blocking, runs after tool completes).
+	if l.hooks != nil {
+		l.hooks.RunAfterTool(tc.Function.Name, result)
 	}
 	return result
 }

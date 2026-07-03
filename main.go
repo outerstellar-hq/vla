@@ -17,6 +17,7 @@ import (
 	"github.com/abrandt/vla/internal/commands"
 	"github.com/abrandt/vla/internal/compaction"
 	"github.com/abrandt/vla/internal/config"
+	"github.com/abrandt/vla/internal/hooks"
 	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/llm"
 	"github.com/abrandt/vla/internal/lsp"
@@ -181,6 +182,14 @@ func runAgent() {
 	}
 
 	// Slash commands: /help, /tools, /memory, /compact, /session
+	// Hooks: load .vla/hooks.json and wire into the loop.
+	hookMgr := hooks.Load(baseDir)
+	if hookMgr.HasHooks() {
+		loop.SetHookRunner(hookAdapter{mgr: hookMgr})
+		fmt.Fprintf(os.Stderr, "vla: hooks loaded\n")
+	}
+
+	// Slash commands: /help, /tools, /memory, /compact, /session, /cost
 	loop.SetCommandHandler(func(input string) (string, bool) {
 		result := commands.Execute(input, commands.Context{
 			Registry:  reg,
