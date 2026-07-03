@@ -500,4 +500,4 @@ func loadTranscriptMessages(sess *session.Session) ([]agent.Message, error) {
 // silence unused imports (fsutil is used indirectly via tools)
 var _ = fsutil.MaxReadBytes
 var _ = time.Second
-var _ = compaction.CharThreshold
+var _ = compaction.DefaultTokenThreshold

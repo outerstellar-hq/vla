@@ -50,6 +50,7 @@ func runAgent() {
 	modelFlag := flag.String("model", "", "override config model for this run")
 	configFlag := flag.String("config", "", "path to config.json (default: ./config.json then ~/.vla/config.json)")
 	yesFlag := flag.Bool("yes", false, "auto-approve all tool calls (no confirmation prompts)")
+	planFlag := flag.Bool("plan", false, "plan mode: read-only investigation, no file modifications")
 	flag.Parse()
 
 	cfgPath := app.ResolveConfigPath(*configFlag)
@@ -134,12 +135,11 @@ func runAgent() {
 
 	client := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
 	summarizer := newSummarizer(client)
-	// Use the model's context limit for compaction threshold (75% of context
-	// window, converted to chars at ~4 chars/token). Falls back to the default
-	// if context_limit isn't set in the config.
-	threshold := compaction.CharThreshold
+	// Compaction threshold: 75% of the model's context window (in tokens).
+	// Falls back to DefaultTokenThreshold if context_limit isn't set.
+	threshold := compaction.DefaultTokenThreshold
 	if cfg.ContextLimit > 0 {
-		threshold = (cfg.ContextLimit * 3 / 4) * 4 // 75% of tokens → chars
+		threshold = cfg.ContextLimit * 3 / 4
 	}
 	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, threshold)
 	loop.SetContextInjector(injector)
@@ -151,6 +151,14 @@ func runAgent() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: permissions: %v\n", err)
 		permMgr = &permissions.Manager{Default: permissions.ActionAllow}
+	}
+	// In plan mode, deny all destructive tools — the LLM can investigate
+	// but not modify anything.
+	if *planFlag {
+		for _, tool := range []string{"write_file", "update_file", "delete_file", "git_commit"} {
+			permMgr.AddOverride(tool, permissions.ActionDeny)
+		}
+		fmt.Fprintf(os.Stderr, "vla: plan mode — file modifications blocked\n")
 	}
 	loop.SetPermissionChecker(permChecker{permMgr})
 
@@ -179,7 +187,11 @@ func runAgent() {
 	}
 
 	// On resume, reload prior messages and prepend the system prompt.
-	systemMsg := agent.Message{Role: agent.RoleSystem, Content: app.SystemPrompt()}
+	promptText := app.SystemPrompt()
+	if *planFlag {
+		promptText = app.PlanModePrompt()
+	}
+	systemMsg := agent.Message{Role: agent.RoleSystem, Content: promptText}
 	if *resume != "" {
 		msgs, err := app.LoadTranscriptMessages(sess)
 		if err != nil {

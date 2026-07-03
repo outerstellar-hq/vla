@@ -95,3 +95,12 @@ func (m *Manager) Check(toolName string) Action {
 func (m *Manager) IsBlocked(toolName string) bool {
 	return m.Check(toolName) == ActionDeny
 }
+
+// AddOverride adds or replaces a permission rule at runtime. Used by plan
+// mode to deny all destructive tools without editing the config file.
+func (m *Manager) AddOverride(toolName string, action Action) {
+	if m.rules == nil {
+		m.rules = make(map[string]Action)
+	}
+	m.rules[toolName] = action
+}

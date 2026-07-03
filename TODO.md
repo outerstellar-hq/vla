@@ -37,32 +37,18 @@ where it goes, and why it matters.
 
 ## P1 — Functionality (matches competitor features)
 
-### 4. Better Compaction (token-aware)
-**What:** Replace the char-based threshold with real token counting. Use strategic inclusion/exclusion of prior tool results (e.g. summarize a 50KB file read instead of keeping it verbatim). Stitch conversation fragments intelligently.
+### 4. Better Compaction (token-aware) — DONE
+- [x] Threshold expressed in tokens (~4 chars/token), not raw chars
+- [x] Uses model's context limit from models.dev (75% = trigger point)
+- [x] Oversized tool results in recent window truncated to MaxToolResultTokens
+- [x] Truncation notice tells LLM to use read_file for full output
+- [x] DefaultTokenThreshold fallback when context_limit unknown
 
-**Where:**
-- `internal/compaction/compaction.go` — replace `totalChars` with token counting
-- `internal/tokenizer/` — new package (tiktoken Go port or API-based counting)
-
-**Why:** The current compaction triggers at 100K chars (~25K tokens estimated). This is inaccurate for models with 128K-2M context windows. A GPT-4o model with 128K context should compact at ~96K tokens, not ~25K. models.dev gives us the real context limit — we should use it.
-
-**Specifics:**
-- Count tokens using the model's tokenizer (tiktoken for OpenAI, API `usage` response for others)
-- When compacting, summarize large tool results individually rather than all old turns en masse
-- Keep the most recent tool result verbatim (it's likely relevant to the current task)
-- Track token count per message so we don't re-count on every turn
-
----
-
-### 5. Plan / Build Modes
-**What:** Separate planning from execution. In "plan" mode the LLM investigates and proposes a plan without making changes. In "build" mode it executes the plan with tool calls. User approves the plan before build starts.
-
-**Where:**
-- `main.go` — `--plan` flag or `vla plan` subcommand
-- `internal/agent/loop.go` — in plan mode, restrict tools to read-only (read_file, search, list_files, go_to_definition, find_references)
-- `internal/plan/` — new package for plan data model + storage
-
-**Why:** OpenCode and Claude Code both have this. It prevents the LLM from making changes while it's still understanding the problem. The plan becomes a checkpoint the user can review.
+### 5. Plan / Build Modes — DONE
+- [x] `--plan` flag: read-only investigation, all write tools blocked
+- [x] Plan mode system prompt: tells LLM to produce a numbered plan
+- [x] Permission overrides applied at runtime (no config file edit needed)
+- [x] User reviews plan, re-runs without --plan to execute
 
 ---
 
@@ -239,4 +225,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Dependabot (grouped weekly PRs)
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
-- [x] 289 tests (278 unit + 9 integration + 2 approval/permission), all deterministic
+- [x] 297 tests, all deterministic
