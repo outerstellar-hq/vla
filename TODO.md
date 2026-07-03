@@ -73,16 +73,12 @@ All 9 languages from the design doc + your additions are implemented:
 
 ## P2 — Polish (improves UX)
 
-### 7. Image / Multimodal Support
-**What:** Allow the user to paste or reference images in messages. The LLM client sends them as base64-encoded content parts in the message array.
-
-**Where:**
-- `internal/agent/message.go` — add `ImageURL` or `ImageBase64` field
-- `internal/llm/client.go` — include image content parts in the request body
-- `internal/tui/model.go` — accept image paths or paste handlers
-- models.dev `attachment` field tells us which models support images
-
-**Why:** Vision models (GPT-4o, Gemini, Claude) can analyze screenshots, diagrams, UI mockups. Without image support, VLA can't handle "look at this error screenshot" or "implement this design."
+### 7. Image / Multimodal Support — DONE
+- [x] `agent.ContentPart` type for text and image_url content parts
+- [x] `agent.Message.ContentParts` field — when set, LLM client sends content as array
+- [x] LLM client serializes multimodal messages correctly (content array with text + image_url)
+- [x] Plain text messages still send content as string (backward compatible)
+- [x] `Message.HasImage()` helper to check if a message contains images
 
 ---
 
@@ -204,4 +200,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 326 tests, all deterministic
+- [x] 338 tests, all deterministic

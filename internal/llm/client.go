@@ -102,12 +102,31 @@ func (c *Client) Stream(messages []agent.Message, toolDefs []map[string]any) (ag
 // them. If out is nil, deltas are accumulated but not printed (useful for tests
 // and for the summarization call during compaction, which uses io.Discard).
 func (c *Client) StreamTo(messages []agent.Message, toolDefs []map[string]any, out io.Writer) (agent.Message, error) {
-	body, err := json.Marshal(request{
-		Model:         c.model,
-		Messages:      messages,
-		Tools:         toolDefs,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
+	// Convert messages to a format that handles multimodal content parts.
+	// When a message has ContentParts, send content as an array instead of string.
+	msgMaps := make([]map[string]any, len(messages))
+	for i, m := range messages {
+		msg := map[string]any{"role": string(m.Role)}
+		if len(m.ContentParts) > 0 {
+			msg["content"] = m.ContentParts
+		} else {
+			msg["content"] = m.Content
+		}
+		if len(m.ToolCalls) > 0 {
+			msg["tool_calls"] = m.ToolCalls
+		}
+		if m.ToolCallID != "" {
+			msg["tool_call_id"] = m.ToolCallID
+		}
+		msgMaps[i] = msg
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"model":          c.model,
+		"messages":       msgMaps,
+		"tools":          toolDefs,
+		"stream":         true,
+		"stream_options": map[string]bool{"include_usage": true},
 	})
 	if err != nil {
 		return agent.Message{}, fmt.Errorf("llm: marshal request: %w", err)
