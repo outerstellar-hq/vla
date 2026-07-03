@@ -100,6 +100,16 @@ func main() {
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
 
+	// Use readline for interactive input (line editing, history, Ctrl+C).
+	// Falls back to plain stdin if readline init fails (e.g. piped input).
+	rl, err := newReadline()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "vla: warn: readline unavailable (%v), using plain input\n", err)
+	} else {
+		defer rl.Close()
+		loop.SetInput(rl)
+	}
+
 	// On resume, reload prior messages from the transcript and prepend the
 	// system prompt so the LLM still knows what it is and what tools it has.
 	// (Without this, a resumed session has no system message at all.)

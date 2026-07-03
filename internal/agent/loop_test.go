@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -489,7 +490,76 @@ func TestLoop_NoWriterDoesntPanic(t *testing.T) {
 	}
 }
 
-// TestLoop_MaxTurnsAbortsInfiniteToolCallLoop verifies that if the LLM keeps
+// fakeInput is a test InputReader that returns pre-set lines.
+type fakeInput struct {
+	lines []string
+	idx   int
+}
+
+func (f *fakeInput) Readline() (string, error) {
+	if f.idx >= len(f.lines) {
+		return "", io.EOF
+	}
+	line := f.lines[f.idx]
+	f.idx++
+	return line, nil
+}
+
+func (f *fakeInput) Close() error { return nil }
+
+// TestLoop_ReadlineInputPath verifies the loop works correctly when an
+// InputReader is set (the readline path) — each Readline call returns one
+// complete message, no blank-line-to-submit needed.
+func TestLoop_ReadlineInputPath(t *testing.T) {
+	srv := streamingServer(t, []string{
+		`{"choices":[{"delta":{"role":"assistant","content":"response"}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+	})
+	defer srv.Close()
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+	loop.SetInput(&fakeInput{lines: []string{"hello"}})
+
+	var output strings.Builder
+	if err := loop.Run(nil, &output); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !strings.Contains(output.String(), "response") {
+		t.Errorf("expected response in output, got %q", output.String())
+	}
+}
+
+// TestLoop_ReadlineEmptyLineSkipped verifies that empty lines from readline
+// are skipped (don't send an empty message to the LLM).
+func TestLoop_ReadlineEmptyLineSkipped(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		w.Write([]byte(`data: {"choices":[{"delta":{"role":"assistant","content":"ok"}}]}` + "\n\n"))
+		w.Write([]byte(`data: {"choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+		f.Flush()
+	}))
+	defer srv.Close()
+
+	client := llm.NewClient("k", srv.URL, "gpt-4o")
+	reg := tools.NewRegistry()
+	loop := agent.NewLoop(client, reg, identityCompactor, stubSummarizer, 1_000_000)
+	loop.SetInput(&fakeInput{lines: []string{"", "", "real message"}})
+
+	var output strings.Builder
+	_ = loop.Run(nil, &output)
+	// Should only call the LLM once (for "real message"), not for empty lines.
+	if callCount != 1 {
+		t.Errorf("expected 1 LLM call (empty lines skipped), got %d", callCount)
+	}
+}
+
+// helper for multiple-tool-call test to satisfy unused import
 // requesting tool calls beyond MaxTurns, the loop aborts and returns control
 // to the user instead of looping forever.
 func TestLoop_MaxTurnsAbortsInfiniteToolCallLoop(t *testing.T) {

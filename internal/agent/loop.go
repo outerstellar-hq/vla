@@ -17,6 +17,14 @@ import (
 // If nil, messages are not persisted (in-memory only).
 type TranscriptWriter func(turn map[string]any) error
 
+// InputReader reads one line of user input with a prompt. It's satisfied by
+// *readline.Instance in production and by a plainReader in tests. Returns
+// the text (without trailing newline) and io.EOF when input is exhausted.
+type InputReader interface {
+	Readline() (string, error)
+	Close() error
+}
+
 // Streamer is the minimal LLM-client surface the loop depends on. It is
 // satisfied by *llm.Client; defining it here breaks what would otherwise be
 // an import cycle (llm imports agent for Message, so agent cannot import llm).
@@ -35,7 +43,7 @@ type Summarizer func(msgs []Message) (string, error)
 type Compactor func(msgs []Message, sum Summarizer, threshold int) ([]Message, error)
 
 // Loop is the VLA agent loop. It is created once per session and run with
-// a user-input reader and an output writer (the terminal).
+// an InputReader (readline or plain stdin) and an output writer (terminal).
 type Loop struct {
 	client     Streamer
 	registry   *tools.Registry
@@ -43,6 +51,7 @@ type Loop struct {
 	compactor  Compactor
 	injector   ContextInjector  // optional; nil = no context injection
 	writer     TranscriptWriter // optional; nil = no persistence
+	input      InputReader      // set via SetInput; nil = legacy bufio mode
 	threshold  int
 	messages   []Message
 }
@@ -73,6 +82,13 @@ func (l *Loop) SetTranscriptWriter(w TranscriptWriter) {
 	l.writer = w
 }
 
+// SetInput installs an InputReader (e.g. readline instance) for interactive
+// line editing, history, and multi-line support. If not called, Run falls
+// back to plain bufio.Reader with blank-line-to-submit.
+func (l *Loop) SetInput(r InputReader) {
+	l.input = r
+}
+
 // LoadMessages restores the in-memory message list from a prior session.
 // Call this before Run to resume a conversation (--resume).
 func (l *Loop) LoadMessages(msgs []Message) {
@@ -99,10 +115,42 @@ func (l *Loop) persist(role Role, content string, toolCalls []ToolCall, toolCall
 	_ = l.writer(turn) // best-effort; don't crash the loop on write failure
 }
 
-// Run reads user messages from in (one per blank-line-terminated block) and
-// writes assistant responses + tool results to out. Continues reading input
-// until EOF or error.
+// Run reads user messages and writes assistant responses + tool results to
+// out. If an InputReader was set via SetInput, it uses readline (line editing,
+// history). Otherwise it reads from in with blank-line-to-submit (for tests).
 func (l *Loop) Run(in io.Reader, out io.Writer) error {
+	if l.input != nil {
+		return l.runReadline(out)
+	}
+	return l.runPlain(in, out)
+}
+
+// runReadline uses the InputReader (readline in production) for input.
+func (l *Loop) runReadline(out io.Writer) error {
+	for {
+		text, err := l.input.Readline()
+		if err == io.EOF {
+			fmt.Fprintln(out)
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("agent: read input: %w", err)
+		}
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+
+		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})
+		l.persist(RoleUser, text, nil, "")
+		if err := l.turn(out); err != nil {
+			return err
+		}
+	}
+}
+
+// runPlain uses a bufio reader with blank-line-to-submit. Used by tests and
+// when readline is not available (e.g. piped input).
+func (l *Loop) runPlain(in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
 	for {
 		fmt.Fprint(out, "> ")
