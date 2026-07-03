@@ -120,23 +120,20 @@ All 9 languages from the design doc + your additions are implemented:
 
 ## P3 — Future (nice to have)
 
-### 11. Multi-Agent / Parallel Execution
-**What:** Run multiple agent loops in parallel (e.g. one investigates the bug, another writes tests, a third updates docs).
+### 11. Multi-Agent / Parallel Execution — DONE
+- [x] `agent.Coordinator` spawns N sub-agents in parallel goroutines
+- [x] Each sub-agent has independent message history, shared tool registry
+- [x] Sub-agents execute tool calls autonomously (no approval prompts)
+- [x] Results collected in order, formatted as combined summary
+- [x] Error handling per sub-agent (failures don't block others)
 
-**Where:**
-- `internal/agent/` — add a `MultiLoop` coordinator
-- `main.go` — `--parallel` flag
-
-**Why:** OpenCode does this (~3x speedup for independent tasks). Complex.
-
----
-
-### 12. Plugin System
-**What:** Let users write custom tools as Go plugins (compiled .so files) or scripts that VLA loads at startup.
-
-**Where:**
-- `internal/plugins/` — new package
-- `.vla/plugins/` — directory for user plugins
+### 12. Plugin System — DONE
+- [x] `internal/plugins/` — script-based plugin system (cross-platform)
+- [x] `.vla/plugins/<name>/plugin.json` manifest with tool schema
+- [x] `.vla/plugins/<name>/run.sh` (or .py, .js, .cmd, .ps1) executable
+- [x] Arguments passed as JSON on stdin, result returned from stdout
+- [x] Auto-discovery: scans .vla/plugins/ for valid plugins on launch
+- [x] Registered alongside built-in + MCP tools
 
 ---
 
@@ -200,4 +197,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 338 tests, all deterministic
+- [x] 357 tests, all deterministic

@@ -25,6 +25,7 @@ import (
 	"github.com/abrandt/vla/internal/memory"
 	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/permissions"
+	"github.com/abrandt/vla/internal/plugins"
 	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
@@ -142,6 +143,16 @@ func runAgent() {
 	if err := mcp.RegisterAll(reg, mcpMgr); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: mcp tool registration: %v\n", err)
 	}
+
+	// Register plugins (user-defined script tools from .vla/plugins/).
+	pluginList := plugins.Load(baseDir)
+	if len(pluginList) > 0 {
+		if err := plugins.RegisterAll(reg, pluginList); err != nil {
+			fmt.Fprintf(os.Stderr, "vla: warn: plugin registration: %v\n", err)
+		}
+		fmt.Fprintf(os.Stderr, "vla: %d plugins loaded\n", len(pluginList))
+	}
+
 	fmt.Fprintf(os.Stderr, "vla: %d tools registered\n", len(reg.Schemas()))
 
 	client := llm.NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model)
