@@ -253,15 +253,21 @@ func (c *Client) Tools() []ToolDef {
 	return out
 }
 
-// Close shuts down the server process.
+// Close shuts down the server process. Safe to call on manually-constructed
+// clients (cmd may be nil in tests using net.Pipe).
 func (c *Client) Close() error {
 	select {
 	case <-c.done:
 	default:
 		close(c.done)
 	}
-	_ = c.stdin.Close()
-	return c.cmd.Process.Kill()
+	if c.stdin != nil {
+		_ = c.stdin.Close()
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+	return nil
 }
 
 // writeMessage writes one newline-delimited JSON message.
