@@ -158,13 +158,11 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 14. Session Index
-**What:** A `~/.vla/sessions/index.json` mapping session IDs to project paths, timestamps, and summaries. Enables cross-project session browsing.
-
-**Where:**
-- `internal/session/` — add index management
-
-**Why:** Currently sessions are scattered files. An index enables `vla sessions --project /path` to list relevant sessions.
+### 14. Session Index — DONE
+- [x] ~/.vla/sessions/index.json maps session IDs to project/model/timestamps
+- [x] `vla sessions` subcommand lists all sessions
+- [x] `vla sessions --project /path` filters by project
+- [x] Sessions recorded automatically on launch/resume
 
 ---
 
@@ -176,13 +174,9 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 16. Concurrency in Indexer
-**What:** Parse files in parallel during the initial build using a worker pool.
-
-**Where:**
-- `internal/indexer/indexer.go` — use `errgroup` or goroutine pool in `Build()`
-
-**Why:** Sequential parsing is fine for small projects but slow for large ones (10K+ files). Parallel parsing with a 4-8 worker pool would cut build time significantly.
+### 16. Concurrency in Indexer — DONE
+- [x] Build() uses 4-goroutine worker pool for parallel file parsing
+- [x] Phase 1 (definitions) and Phase 2 (references) both parallelized
 
 ---
 
@@ -215,4 +209,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 309 tests, all deterministic
+- [x] 326 tests, all deterministic
