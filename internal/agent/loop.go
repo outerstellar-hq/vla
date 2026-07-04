@@ -62,6 +62,16 @@ type Streamer interface {
 	StreamTo(messages []Message, toolDefs []map[string]any, out io.Writer) (Message, error)
 }
 
+// UsageProvider returns accumulated token usage. If the Streamer also
+// satisfies this interface (as *llm.Client does), the loop emits EventUsage
+// after each LLM call so the TUI can show a live token count.
+type UsageProvider interface {
+	// TotalUsage returns a snapshot of the accumulated usage. The concrete
+	// type must be the llm package's Usage (or layout-compatible); we use a
+	// pointer-to-Usage return so the loop can copy fields without importing llm.
+	UsageSnapshot() Usage
+}
+
 // Summarizer summarizes a slice of messages into a terse string. Defined
 // here (mirroring compaction.Summarizer) to avoid the agent↔compaction
 // import cycle; the loop receives the real compaction logic via Compactor.
@@ -86,6 +96,7 @@ type Loop struct {
 	permCheck  ToolPermissionChecker // optional; nil = no permission checks
 	cmdHandler CommandHandler        // optional; nil = no slash commands
 	hooks      HookRunner            // optional; nil = no hooks
+	events     chan<- Event          // optional; nil = no structured events
 	threshold  int
 	messages   []Message
 }
@@ -145,6 +156,26 @@ func (l *Loop) SetHookRunner(h HookRunner) {
 // "/" are intercepted and handled locally instead of sent to the LLM.
 func (l *Loop) SetCommandHandler(h CommandHandler) {
 	l.cmdHandler = h
+}
+
+// SetEventChan installs a channel for structured events (tool start/result,
+// turn boundaries, usage). The TUI uses these to render tool-call blocks,
+// spinners, and a live status bar. Events are non-blocking (dropped if the
+// channel is full). Must be called before Run.
+func (l *Loop) SetEventChan(ch chan<- Event) {
+	l.events = ch
+}
+
+// emitUsage checks if the Streamer provides usage data and, if so, emits an
+// EventUsage. Called after each LLM API call.
+func (l *Loop) emitUsage() {
+	if l.events == nil {
+		return
+	}
+	if up, ok := l.client.(UsageProvider); ok {
+		u := up.UsageSnapshot()
+		l.emitEvent(Event{Type: EventUsage, Usage: &u})
+	}
 }
 
 // LoadMessages restores the in-memory message list from a prior session.
@@ -257,6 +288,9 @@ const MaxTurns = 50
 // turn executes one full agent turn: call LLM → stream → execute tool calls
 // → loop until the LLM responds without tool calls.
 func (l *Loop) turn(out io.Writer) error {
+	l.emitEvent(Event{Type: EventTurnStart})
+	defer l.emitEvent(Event{Type: EventTurnEnd})
+
 	for iter := 0; iter < MaxTurns; iter++ {
 		view, err := l.compactor(l.messages, l.summarizer, l.threshold)
 		if err != nil {
@@ -270,6 +304,7 @@ func (l *Loop) turn(out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		l.emitUsage()
 		l.messages = append(l.messages, msg)
 		l.persist(RoleAssistant, msg.Content, msg.ToolCalls, "")
 
@@ -278,7 +313,10 @@ func (l *Loop) turn(out io.Writer) error {
 		}
 
 		for _, tc := range msg.ToolCalls {
+			l.emitEvent(Event{Type: EventToolStart, Tool: tc.Function.Name, Args: tc.Function.Arguments})
 			result := l.executeToolCall(tc)
+			isError := strings.HasPrefix(result, "Error:")
+			l.emitEvent(Event{Type: EventToolResult, Tool: tc.Function.Name, Result: result, Error: isError})
 			l.messages = append(l.messages, Message{
 				Role:       RoleTool,
 				Content:    result,

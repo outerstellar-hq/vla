@@ -90,18 +90,20 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 9. TUI Polish
-**What:** Improve the bubbletea TUI with features users expect from Claude Code / OpenCode.
-
-**Where:** `internal/tui/model.go`
-
-**Specifics:**
-- Tool call indicators with expand/collapse (show/hide full tool output)
-- Markdown rendering for assistant messages (code blocks with syntax highlighting)
-- Split-pane mode: conversation + live diff preview side by side
-- `/help`, `/tools`, `/memory` slash commands within the TUI
-- Auto-scroll lock (stop scrolling when user scrolls up to read history)
-- Session switcher (`/sessions` to list and switch)
+### 9. TUI Polish — DONE (core features; split-pane + session switcher deferred)
+- [x] Markdown rendering for assistant messages via glamour (code blocks, headings, lists, bold/italic, tables)
+- [x] Tool call blocks with expand/collapse (Tab toggles, shows args + result; status icons ✓/⊘/⟳)
+- [x] Auto-scroll lock with follow toggle (Ctrl+F; pauses on scroll-up, resumes on new message)
+- [x] Live status bar: spinner + "thinking"/"running: tool" state + live token count (1.2k tok format)
+- [x] Fixed `Init()` polling bug (channels were never started)
+- [x] Fixed dead `toolCh`/`doneCh` channels (replaced by typed `Event` channel)
+- [x] TUI-native approval system (fixes ReadlineApprover deadlock in alt-screen mode)
+- [x] Slash command autocomplete (filtered menu on `/` prefix, arrow keys + Enter)
+- [x] Typed event system: `agent.Event` channel (TurnStart/End, ToolStart/Result, Usage, ApprovalReq)
+- [x] Block-based rendering model (replaces flat chatMsg with typed blocks)
+- [x] 48 new deterministic tests (events + TUI model), 387 total
+- [ ] Split-pane diff preview (deferred — needs diff library)
+- [ ] Session switcher (deferred — needs session list TUI component)
 
 ---
 
@@ -197,4 +199,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 357 tests, all deterministic
+- [x] 387 tests, all deterministic

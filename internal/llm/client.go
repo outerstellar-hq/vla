@@ -35,6 +35,18 @@ func (c *Client) TotalUsage() Usage {
 	return c.totalUsage
 }
 
+// UsageSnapshot returns accumulated token usage as agent.Usage for the
+// event system. This satisfies the agent.UsageProvider interface.
+func (c *Client) UsageSnapshot() agent.Usage {
+	c.usageMu.Lock()
+	defer c.usageMu.Unlock()
+	return agent.Usage{
+		PromptTokens:     c.totalUsage.PromptTokens,
+		CompletionTokens: c.totalUsage.CompletionTokens,
+		TotalTokens:      c.totalUsage.TotalTokens,
+	}
+}
+
 // NewClient returns a streaming client for the given config. The HTTP client
 // has a 5-minute timeout — long enough for large completions, short enough to
 // not hang forever on a dead connection.

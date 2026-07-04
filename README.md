@@ -9,11 +9,11 @@
   Named after the <a href="https://en.wikipedia.org/wiki/Very_Large_Array">Very Large Array</a>: multiple tools working together to see deep into a codebase.
 </p>
 
-**237 deterministic tests. Full-screen TUI. MCP support. LSP integration.**
+**387 deterministic tests. Full-screen TUI. MCP support. LSP integration.**
 
 ## What makes VLA different
 
-1. **Full-screen TUI.** A bubbletea terminal interface with scrollable conversation pane, streaming responses, multi-line input, and status bar — like Claude Code or OpenCode.
+1. **Full-screen TUI.** A bubbletea terminal interface with markdown rendering, expandable tool-call blocks, scroll lock, live status bar (spinner + token count), slash-command autocomplete, and inline approval prompts — like Claude Code or OpenCode.
 2. **MCP support.** Connect external tools via Model Context Protocol — same protocol as Claude Code, Cursor, OpenCode. Any MCP server plugs in via `.vla/mcp.json`.
 3. **IDE-grade tool space.** 20+ built-in tools: file, search, git, web, memory, navigation, plus unlimited MCP tools.
 4. **Persistent memory.** The agent remembers across sessions. Memories are stored per-project with embedding-based semantic search, auto-injected into context before each LLM call.

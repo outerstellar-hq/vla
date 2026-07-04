@@ -13,7 +13,6 @@ import (
 
 	"github.com/abrandt/vla/internal/agent"
 	"github.com/abrandt/vla/internal/app"
-	"github.com/abrandt/vla/internal/approval"
 	"github.com/abrandt/vla/internal/commands"
 	"github.com/abrandt/vla/internal/compaction"
 	"github.com/abrandt/vla/internal/config"
@@ -184,12 +183,11 @@ func runAgent() {
 	}
 	loop.SetPermissionChecker(permChecker{permMgr})
 
-	// Approval system: --yes flag skips all prompts; otherwise prompt before
-	// destructive tools (write_file, update_file, delete_file, git_commit).
+	// Approval system: --yes flag skips all prompts. For interactive TUI mode,
+	// the approver is set in runTUI (TUIApprover) to avoid deadlocking on
+	// os.Stdin. For non-interactive (piped) mode, no approver is set.
 	if *yesFlag {
 		loop.SetApprover(alwaysApprover{})
-	} else if isInteractive() {
-		loop.SetApprover(approverAdapter{approval.NewReadlineApprover()})
 	}
 
 	// Slash commands: /help, /tools, /memory, /compact, /session
@@ -234,7 +232,7 @@ func runAgent() {
 	// Use the TUI for interactive terminals; fall back to readline for piped
 	// input or when the terminal doesn't support raw mode.
 	if isInteractive() {
-		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr)
+		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr, *yesFlag)
 		return
 	}
 

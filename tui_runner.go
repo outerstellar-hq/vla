@@ -23,7 +23,10 @@ func isInteractive() bool {
 }
 
 // runTUI starts the full-screen bubbletea interface. The agent loop runs in
-// a background goroutine, communicating with the TUI via channels.
+// a background goroutine, communicating with the TUI via channels:
+//   - inputCh:     TUI → loop (user-submitted text)
+//   - streamWriter: loop → TUI (raw streaming tokens via io.Writer)
+//   - eventCh:     loop → TUI (typed events: tool calls, usage, turn boundaries)
 func runTUI(
 	loop *agent.Loop,
 	cfg *config.Config,
@@ -32,21 +35,36 @@ func runTUI(
 	watcher *indexer.Watcher,
 	lspMgr *lsp.Manager,
 	mcpMgr *mcp.Manager,
+	autoApprove bool,
 ) {
 	// Channels between TUI and agent loop.
 	inputCh := tui.NewChannelInput()       // TUI → loop: user messages
 	streamWriter := tui.NewChannelWriter() // loop → TUI: streaming tokens
+	eventCh := make(chan agent.Event, 64)  // loop → TUI: typed events (buffered)
 
-	// Wire the loop to use channel input and stream output.
+	// Wire the loop to use channel input, stream output, and event channel.
 	loop.SetInput(inputCh)
+	loop.SetEventChan(eventCh)
 
-	// Status bar info.
-	statusInfo := fmt.Sprintf("vla │ %s │ %d tools │ session %s",
-		cfg.Model, len(reg.Schemas()), sess.ID())
+	// TUI-native approval: only if the loop has an approver set (i.e. --yes
+	// was not passed). The TUIApprover routes y/n/a prompts through the TUI
+	// instead of ReadlineApprover (which deadlocks in alt-screen mode).
+	var approver *tui.TUIApprover
+	if !autoApprove {
+		approver = tui.NewTUIApprover()
+		loop.SetApprover(approver)
+	}
 
-	// Create the TUI model.
-	model := tui.New(statusInfo, inputCh.Ch, streamWriter.Chan(),
-		make(chan string, 1), make(chan bool, 1))
+	// Create the TUI model with the new signature.
+	model := tui.New(
+		cfg.Model,
+		len(reg.Schemas()),
+		sess.ID(),
+		inputCh.Ch,
+		streamWriter.Chan(),
+		eventCh,
+		approver,
+	)
 
 	// Start bubbletea in a goroutine so we can run the agent loop on the main
 	// goroutine (the loop blocks on input from the channel).
