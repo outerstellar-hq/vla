@@ -21,6 +21,16 @@ const (
 	LangCSharp Language = "csharp"
 	LangPHP    Language = "php"
 	LangJS     Language = "javascript"
+	LangCSS    Language = "css"
+	LangHTML   Language = "html"
+	LangRust   Language = "rust"
+	LangRuby   Language = "ruby"
+	LangC      Language = "c"
+	LangDart   Language = "dart"
+	LangLua    Language = "lua"
+	LangElixir Language = "elixir"
+	LangScala  Language = "scala"
+	LangSwift  Language = "swift"
 )
 
 // ServerSpec describes how to launch a language server for one language.
@@ -34,13 +44,23 @@ type ServerSpec struct {
 // These are only used if the server is found on PATH; the manager won't fail
 // if they're missing — navigation tools just fall back to the regex indexer.
 //
-//	Python:  pyright-langserver --stdio
-//	Go:      gopls serve
-//	Kotlin:  fwcd/kotlin-language-server --stdio
-//	Java:    Eclipse JDT.LS (jdtls --stdio)
-//	C#:      OmniSharp-roslyn (-lsp)
-//	PHP:     intelephense --stdio
-//	JS/TS:   typescript-language-server --stdio
+//	Python:   pyright-langserver --stdio
+//	Go:       gopls serve
+//	Kotlin:   fwcd/kotlin-language-server --stdio
+//	Java:     Eclipse JDT.LS (jdtls --stdio)
+//	C#:       OmniSharp-roslyn (-lsp)
+//	PHP:      intelephense --stdio
+//	JS/TS:    typescript-language-server --stdio
+//	CSS/SCSS: vscode-css-language-server --stdio
+//	HTML:     vscode-html-language-server --stdio
+//	Rust:     rust-analyzer
+//	Ruby:     solargraph stdio
+//	C/C++:    clangd
+//	Dart:     dart language-server
+//	Lua:      lua-language-server
+//	Elixir:   elixir-ls
+//	Scala:    metals
+//	Swift:    sourcekit-lsp
 func DefaultSpecs() map[Language]ServerSpec {
 	return map[Language]ServerSpec{
 		LangPython: {Language: LangPython, Command: "pyright-langserver", Args: []string{"--stdio"}},
@@ -50,6 +70,16 @@ func DefaultSpecs() map[Language]ServerSpec {
 		LangCSharp: {Language: LangCSharp, Command: "OmniSharp", Args: []string{"-lsp"}},
 		LangPHP:    {Language: LangPHP, Command: "intelephense", Args: []string{"--stdio"}},
 		LangJS:     {Language: LangJS, Command: "typescript-language-server", Args: []string{"--stdio"}},
+		LangCSS:    {Language: LangCSS, Command: "vscode-css-language-server", Args: []string{"--stdio"}},
+		LangHTML:   {Language: LangHTML, Command: "vscode-html-language-server", Args: []string{"--stdio"}},
+		LangRust:   {Language: LangRust, Command: "rust-analyzer", Args: nil},
+		LangRuby:   {Language: LangRuby, Command: "solargraph", Args: []string{"stdio"}},
+		LangC:      {Language: LangC, Command: "clangd", Args: nil},
+		LangDart:   {Language: LangDart, Command: "dart", Args: []string{"language-server", "--protocol=lsp"}},
+		LangLua:    {Language: LangLua, Command: "lua-language-server", Args: nil},
+		LangElixir: {Language: LangElixir, Command: "elixir-ls", Args: []string{"--stdio"}},
+		LangScala:  {Language: LangScala, Command: "metals", Args: []string{"--stdio"}},
+		LangSwift:  {Language: LangSwift, Command: "sourcekit-lsp", Args: nil},
 	}
 }
 
@@ -209,14 +239,22 @@ func (m *Manager) Close() {
 // InferLanguage guesses the primary language from project marker files.
 // Returns empty string if it can't determine.
 func InferLanguage(workspace string) Language {
+	// Rust: Cargo.toml
+	if fileExists(filepath.Join(workspace, "Cargo.toml")) {
+		return LangRust
+	}
 	// Go: go.mod
 	if fileExists(filepath.Join(workspace, "go.mod")) {
 		return LangGo
 	}
-	// Kotlin: build.gradle.kts or settings.gradle.kts + src/main/kotlin dir
+	// Kotlin: build.gradle.kts or settings.gradle.kts
 	if fileExists(filepath.Join(workspace, "build.gradle.kts")) ||
 		fileExists(filepath.Join(workspace, "settings.gradle.kts")) {
 		return LangKotlin
+	}
+	// Scala: build.sbt
+	if fileExists(filepath.Join(workspace, "build.sbt")) {
+		return LangScala
 	}
 	// Java: pom.xml or build.gradle (non-kts)
 	if fileExists(filepath.Join(workspace, "pom.xml")) ||
@@ -232,9 +270,38 @@ func InferLanguage(workspace string) Language {
 	if len(matches) > 0 {
 		return LangCSharp
 	}
+	// Swift: Package.swift or *.xcodeproj
+	if fileExists(filepath.Join(workspace, "Package.swift")) {
+		return LangSwift
+	}
+	matches, _ = filepath.Glob(filepath.Join(workspace, "*.xcodeproj"))
+	if len(matches) > 0 {
+		return LangSwift
+	}
 	// PHP: composer.json
 	if fileExists(filepath.Join(workspace, "composer.json")) {
 		return LangPHP
+	}
+	// Ruby: Gemfile or .rb files with no other markers
+	if fileExists(filepath.Join(workspace, "Gemfile")) ||
+		fileExists(filepath.Join(workspace, "Rakefile")) {
+		return LangRuby
+	}
+	// Dart/Flutter: pubspec.yaml
+	if fileExists(filepath.Join(workspace, "pubspec.yaml")) {
+		return LangDart
+	}
+	// Elixir: mix.exs
+	if fileExists(filepath.Join(workspace, "mix.exs")) {
+		return LangElixir
+	}
+	// C/C++: CMakeLists.txt, Makefile with .c/.h files
+	if fileExists(filepath.Join(workspace, "CMakeLists.txt")) {
+		return LangC
+	}
+	// Lua: .luarc.json or lua/ directory with .lua files
+	if fileExists(filepath.Join(workspace, ".luarc.json")) {
+		return LangLua
 	}
 	// JS/TS: package.json
 	if fileExists(filepath.Join(workspace, "package.json")) {

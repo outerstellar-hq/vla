@@ -19,6 +19,105 @@ func TestDefaultSpecs(t *testing.T) {
 	if specs[LangGo].Command == "" {
 		t.Error("missing Go server spec")
 	}
+	// Verify all new languages have specs.
+	for _, lang := range []Language{
+		LangCSS, LangHTML, LangRust, LangRuby, LangC,
+		LangDart, LangLua, LangElixir, LangScala, LangSwift,
+	} {
+		if specs[lang].Command == "" {
+			t.Errorf("missing spec for language %q", lang)
+		}
+	}
+}
+
+func TestDefaultSpecs_AllHaveCommands(t *testing.T) {
+	specs := DefaultSpecs()
+	if len(specs) < 17 {
+		t.Errorf("expected at least 17 language specs, got %d", len(specs))
+	}
+	for lang, spec := range specs {
+		if spec.Command == "" {
+			t.Errorf("spec for %q has empty command", lang)
+		}
+		if spec.Language != lang {
+			t.Errorf("spec for %q has wrong language field: %q", lang, spec.Language)
+		}
+	}
+}
+
+func TestInferLanguage_Rust(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]"), 0644)
+	if got := InferLanguage(dir); got != LangRust {
+		t.Errorf("expected Rust, got %q", got)
+	}
+}
+
+func TestInferLanguage_Ruby(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Gemfile"), []byte("source 'https://rubygems.org'"), 0644)
+	if got := InferLanguage(dir); got != LangRuby {
+		t.Errorf("expected Ruby, got %q", got)
+	}
+}
+
+func TestInferLanguage_Dart(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "pubspec.yaml"), []byte("name: myapp"), 0644)
+	if got := InferLanguage(dir); got != LangDart {
+		t.Errorf("expected Dart, got %q", got)
+	}
+}
+
+func TestInferLanguage_Elixir(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "mix.exs"), []byte("defmodule M do end"), 0644)
+	if got := InferLanguage(dir); got != LangElixir {
+		t.Errorf("expected Elixir, got %q", got)
+	}
+}
+
+func TestInferLanguage_Scala(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "build.sbt"), []byte("name := \"test\""), 0644)
+	if got := InferLanguage(dir); got != LangScala {
+		t.Errorf("expected Scala, got %q", got)
+	}
+}
+
+func TestInferLanguage_Swift(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "Package.swift"), []byte("// swift"), 0644)
+	if got := InferLanguage(dir); got != LangSwift {
+		t.Errorf("expected Swift, got %q", got)
+	}
+}
+
+func TestInferLanguage_C(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CMakeLists.txt"), []byte("cmake_minimum_required(VERSION 3.0)"), 0644)
+	if got := InferLanguage(dir); got != LangC {
+		t.Errorf("expected C/C++, got %q", got)
+	}
+}
+
+func TestInferLanguage_Lua(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, ".luarc.json"), []byte("{}"), 0644)
+	if got := InferLanguage(dir); got != LangLua {
+		t.Errorf("expected Lua, got %q", got)
+	}
+}
+
+func TestInferLanguage_CSS(t *testing.T) {
+	// CSS/HTML don't have project marker files — they're detected by
+	// file extension at the tool level, not InferLanguage. Verify
+	// InferLanguage returns empty for a CSS-only directory.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "style.css"), []byte("body {}"), 0644)
+	if got := InferLanguage(dir); got != "" {
+		t.Errorf("CSS-only dir should return empty (no marker), got %q", got)
+	}
 }
 
 func TestNewManager(t *testing.T) {

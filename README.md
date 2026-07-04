@@ -27,7 +27,7 @@
 2. **MCP support.** Connect external tools via Model Context Protocol — same protocol as Claude Code, Cursor, OpenCode. Any MCP server plugs in via `.vla/mcp.json`.
 3. **IDE-grade tool space.** 20+ built-in tools: file, search, git, web, memory, navigation, plus unlimited MCP tools.
 4. **Persistent memory.** The agent remembers across sessions. Memories are stored per-project with embedding-based semantic search, auto-injected into context before each LLM call.
-5. **LSP-backed navigation.** When a language server (gopls, pyright) is available, go-to-definition, find-references, hover, and diagnostics use real LSP. Falls back to a regex-based indexer.
+5. **LSP-backed navigation.** When a language server is available (17 supported: gopls, pyright, rust-analyzer, clangd, solargraph, and more), go-to-definition, find-references, hover, and diagnostics use real LSP. Falls back to a regex-based indexer.
 6. **150+ providers.** Auto-configured via models.dev — `vla use openai/gpt-4o` and you're running.
 7. **Encapsulated tools.** Every tool is a self-contained Go struct in its own file.
 
