@@ -75,6 +75,43 @@ All flags are optional. VLA works with zero flags if `config.json` is present.
 | `--yes` | Auto-approve all tool calls (skip diff approval prompts) |
 | `--plan` | Plan mode: read-only investigation, all write tools blocked |
 | `--sandbox` | Run inside an OS-level sandbox (macOS: sandbox-exec, Linux: bwrap) |
+| `--persona <name\|path>` | System prompt persona: `architect` or path to a `.md` file |
+
+## Personas
+
+The `--persona` flag controls which system prompt VLA uses. This shapes
+the LLM's behavior, priorities, and tone.
+
+### Built-in personas
+
+| Name | Description |
+|------|-------------|
+| *(default)* | Standard VLA: concise, tool-first, investigate-then-act |
+| `architect` | Senior architect: anti-technical-debt, anti-bloat, holistic thinking, demands proven solutions over hand-rolled code |
+
+```bash
+# Use the architect persona
+vla --persona architect
+
+# Use a custom persona from a file
+vla --persona ~/.vla/my-persona.md
+
+# Project-level persona (auto-detected)
+echo "You are a Rust expert..." > .vla/persona.md
+vla
+```
+
+### Custom persona files
+
+Any `.md` file can be used as a persona. The file's contents replace the
+system prompt entirely — include tool instructions if needed, or keep it
+purely behavioral and VLA will append the tool list automatically.
+
+The architect persona is particularly useful for:
+- Codebase audits and technical debt assessment
+- Designing features that need to fit existing architecture
+- Reviewing PRs or proposed changes
+- Projects where quality and maintainability are non-negotiable
 
 ## Subcommands
 

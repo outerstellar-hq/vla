@@ -42,6 +42,7 @@ func runTUI(
 	autoApprove bool,
 	sessionIdx *session.Index,
 	planMode bool,
+	persona string,
 ) {
 	currentSess := sess
 
@@ -80,7 +81,7 @@ func runTUI(
 		loop.SetTranscriptWriter(currentSess.Append)
 
 		// Load messages for this session (fixes resume-into-TUI bug).
-		systemMsg := buildSystemMsg(planMode)
+		systemMsg := buildSystemMsg(planMode, persona)
 		if hasHistory(currentSess) {
 			msgs, err := app.LoadTranscriptMessages(currentSess)
 			if err == nil && len(msgs) > 0 {
@@ -157,9 +158,9 @@ func runTUI(
 	}
 }
 
-// buildSystemMsg returns the system prompt message (plan mode or normal).
-func buildSystemMsg(planMode bool) agent.Message {
-	promptText := app.SystemPrompt()
+// buildSystemMsg returns the system prompt message (plan mode or persona-based).
+func buildSystemMsg(planMode bool, persona string) agent.Message {
+	promptText := resolvePersona(persona)
 	if planMode {
 		promptText = app.PlanModePrompt()
 	}

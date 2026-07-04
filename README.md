@@ -98,6 +98,7 @@ vla
 | `--yes` | Auto-approve all tool calls |
 | `--plan` | Read-only investigation mode |
 | `--sandbox` | OS-level sandbox (macOS/Linux) |
+| `--persona <name\|path>` | System prompt persona (`architect` or `.md` file) |
 
 ## Built-in tools
 

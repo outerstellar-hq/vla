@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,5 +137,66 @@ func TestNewMemoryInjector_EmptyQuery(t *testing.T) {
 	// Empty query → return view unchanged.
 	if len(result) != len(view) {
 		t.Errorf("expected no injection for empty query, got %d", len(result))
+	}
+}
+
+func TestArchitectPrompt(t *testing.T) {
+	p := ArchitectPrompt()
+	if !strings.Contains(p, "senior") {
+		t.Error("architect prompt should mention 'senior'")
+	}
+	if !strings.Contains(p, "technical debt") {
+		t.Error("architect prompt should mention 'technical debt'")
+	}
+	if !strings.Contains(p, "anti-pattern") {
+		t.Error("architect prompt should mention 'anti-pattern'")
+	}
+	if !strings.Contains(p, "read_file") {
+		t.Error("architect prompt should still list tools")
+	}
+}
+
+func TestPromptForPersona(t *testing.T) {
+	// Default (empty) → standard prompt.
+	p := PromptForPersona("")
+	if !strings.Contains(p, "agentic coding harness") {
+		t.Error("default persona should contain standard prompt text")
+	}
+
+	// Architect → architect prompt.
+	p = PromptForPersona("architect")
+	if !strings.Contains(p, "senior") {
+		t.Error("architect persona should contain architect prompt text")
+	}
+
+	// Unknown → falls back to default.
+	p = PromptForPersona("unknown")
+	if !strings.Contains(p, "agentic coding harness") {
+		t.Error("unknown persona should fall back to default")
+	}
+}
+
+func TestLoadPersonaFile(t *testing.T) {
+	// Empty path → empty string.
+	if LoadPersonaFile("") != "" {
+		t.Error("empty path should return empty string")
+	}
+
+	// Non-existent file → empty string.
+	if LoadPersonaFile("/nonexistent/file.md") != "" {
+		t.Error("non-existent file should return empty string")
+	}
+
+	// Real file → contents.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "persona.md")
+	content := "You are a custom persona with specific instructions."
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := LoadPersonaFile(path)
+	if got != content {
+		t.Errorf("LoadPersonaFile = %q, want %q", got, content)
 	}
 }

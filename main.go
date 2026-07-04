@@ -71,6 +71,7 @@ func runAgent() {
 	yesFlag := flag.Bool("yes", false, "auto-approve all tool calls (no confirmation prompts)")
 	planFlag := flag.Bool("plan", false, "plan mode: read-only investigation, no file modifications")
 	sandboxFlag := flag.Bool("sandbox", false, "run inside an OS-level sandbox (macOS: sandbox-exec, Linux: bwrap)")
+	personaFlag := flag.String("persona", "", "system prompt persona: 'architect' or path to a .md file")
 	flag.Parse()
 
 	cfgPath := app.ResolveConfigPath(*configFlag)
@@ -260,7 +261,7 @@ func runAgent() {
 	// Use the TUI for interactive terminals; fall back to readline for piped
 	// input or when the terminal doesn't support raw mode.
 	if isInteractive() {
-		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr, *yesFlag, sessionIdx, *planFlag)
+		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr, *yesFlag, sessionIdx, *planFlag, *personaFlag)
 		return
 	}
 
@@ -274,7 +275,7 @@ func runAgent() {
 	}
 
 	// On resume, reload prior messages and prepend the system prompt.
-	promptText := app.SystemPrompt()
+	promptText := resolvePersona(*personaFlag)
 	if *planFlag {
 		promptText = app.PlanModePrompt()
 	}
@@ -306,6 +307,21 @@ func runAgent() {
 		fmt.Fprintf(os.Stderr, "vla: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// resolvePersona returns the system prompt for the given persona.
+// Accepts built-in names ("architect") or a path to a custom .md file.
+// Falls back to the default prompt for empty or unknown personas.
+func resolvePersona(persona string) string {
+	if persona == "" {
+		return app.SystemPrompt()
+	}
+	// Try as a file path first.
+	if custom := app.LoadPersonaFile(persona); custom != "" {
+		return custom
+	}
+	// Try as a built-in persona name.
+	return app.PromptForPersona(persona)
 }
 
 // reexecSandboxed wraps the current VLA process in an OS-level sandbox
