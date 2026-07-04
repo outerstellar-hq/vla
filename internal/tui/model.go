@@ -108,7 +108,7 @@ func New(
 	vp.SetContent("")
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	sp.Spinner = spinner.Pulse
 
 	m := Model{
 		viewport:      vp,
