@@ -232,7 +232,7 @@ func runAgent() {
 	// Use the TUI for interactive terminals; fall back to readline for piped
 	// input or when the terminal doesn't support raw mode.
 	if isInteractive() {
-		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr, *yesFlag)
+		runTUI(loop, cfg, reg, sess, watcher, lspMgr, mcpMgr, *yesFlag, sessionIdx, *planFlag)
 		return
 	}
 

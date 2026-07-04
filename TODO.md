@@ -90,7 +90,7 @@ All 9 languages from the design doc + your additions are implemented:
 
 ---
 
-### 9. TUI Polish — DONE (core features; split-pane + session switcher deferred)
+### 9. TUI Polish — DONE
 - [x] Markdown rendering for assistant messages via glamour (code blocks, headings, lists, bold/italic, tables)
 - [x] Tool call blocks with expand/collapse (Tab toggles, shows args + result; status icons ✓/⊘/⟳)
 - [x] Auto-scroll lock with follow toggle (Ctrl+F; pauses on scroll-up, resumes on new message)
@@ -102,7 +102,8 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Typed event system: `agent.Event` channel (TurnStart/End, ToolStart/Result, Usage, ApprovalReq)
 - [x] Block-based rendering model (replaces flat chatMsg with typed blocks)
 - [x] Split-pane diff preview — LCS diff engine, auto-shows on write_file/update_file, Ctrl+D toggle, Shift+Up/Down scroll
-- [ ] Session switcher (deferred — needs session list TUI component)
+- [x] Session switcher — Ctrl+S opens full-screen picker, filtered by current project, Up/Down/Enter to select, runner tears down and restarts loop on switch
+- [x] Fixed resume-into-TUI bug (messages weren't loaded in TUI path)
 
 ---
 
@@ -198,4 +199,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 387 tests, all deterministic (+ 20 diff tests = 407 total)
+- [x] 403 tests, all deterministic

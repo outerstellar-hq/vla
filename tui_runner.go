@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/abrandt/vla/internal/agent"
+	"github.com/abrandt/vla/internal/app"
 	"github.com/abrandt/vla/internal/config"
 	"github.com/abrandt/vla/internal/indexer"
 	"github.com/abrandt/vla/internal/lsp"
@@ -23,10 +25,12 @@ func isInteractive() bool {
 }
 
 // runTUI starts the full-screen bubbletea interface. The agent loop runs in
-// a background goroutine, communicating with the TUI via channels:
-//   - inputCh:     TUI → loop (user-submitted text)
-//   - streamWriter: loop → TUI (raw streaming tokens via io.Writer)
-//   - eventCh:     loop → TUI (typed events: tool calls, usage, turn boundaries)
+// a background goroutine, communicating with the TUI via channels.
+//
+// The session switcher: when the user picks a session in the TUI picker,
+// a session ID is sent on switchCh. The runner closes the current input
+// (causing loop.Run to return), opens the new session, loads its messages,
+// and restarts the loop — all without killing bubbletea.
 func runTUI(
 	loop *agent.Loop,
 	cfg *config.Config,
@@ -36,54 +40,143 @@ func runTUI(
 	lspMgr *lsp.Manager,
 	mcpMgr *mcp.Manager,
 	autoApprove bool,
+	sessionIdx *session.Index,
+	planMode bool,
 ) {
-	// Channels between TUI and agent loop.
-	inputCh := tui.NewChannelInput()       // TUI → loop: user messages
-	streamWriter := tui.NewChannelWriter() // loop → TUI: streaming tokens
-	eventCh := make(chan agent.Event, 64)  // loop → TUI: typed events (buffered)
+	currentSess := sess
 
-	// Wire the loop to use channel input, stream output, and event channel.
-	loop.SetInput(inputCh)
-	loop.SetEventChan(eventCh)
+	// Session switch channel: TUI sends session IDs here.
+	switchCh := make(chan string, 1)
 
-	// TUI-native approval: only if the loop has an approver set (i.e. --yes
-	// was not passed). The TUIApprover routes y/n/a prompts through the TUI
-	// instead of ReadlineApprover (which deadlocks in alt-screen mode).
-	var approver *tui.TUIApprover
-	if !autoApprove {
-		approver = tui.NewTUIApprover()
-		loop.SetApprover(approver)
-	}
-
-	// Create the TUI model with the new signature.
-	model := tui.New(
-		cfg.Model,
-		len(reg.Schemas()),
-		sess.ID(),
-		inputCh.Ch,
-		streamWriter.Chan(),
-		eventCh,
-		approver,
-	)
-
-	// Start bubbletea in a goroutine so we can run the agent loop on the main
-	// goroutine (the loop blocks on input from the channel).
-	p := tea.NewProgram(model, tea.WithAltScreen())
-	go func() {
-		if _, err := p.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "vla: tui error: %v\n", err)
+	// Session lister for the picker: filters by current project.
+	sessionLister := func(project string) []tui.SessionItem {
+		var entries []session.IndexEntry
+		if project != "" {
+			entries = sessionIdx.ListByProject(project)
+		} else {
+			entries = sessionIdx.List()
 		}
-	}()
-
-	// Run the agent loop (blocking). Output goes to streamWriter so the TUI
-	// can display streaming tokens. Input comes from inputCh (the TUI).
-	if err := loop.Run(nil, streamWriter); err != nil {
-		fmt.Fprintf(streamWriter, "Error: %v\n", err)
+		items := make([]tui.SessionItem, len(entries))
+		for i, e := range entries {
+			items[i] = tui.SessionItem{
+				ID:      e.ID,
+				Project: e.Project,
+				Model:   e.Model,
+				Created: e.Created,
+			}
+		}
+		return items
 	}
 
-	// Cleanup.
-	inputCh.Close()
-	watcher.Stop()
-	lspMgr.Close()
-	mcpMgr.Close()
+	for {
+		// Channels between TUI and agent loop for this iteration.
+		inputCh := tui.NewChannelInput()
+		streamWriter := tui.NewChannelWriter()
+		eventCh := make(chan agent.Event, 64)
+
+		// Wire the loop for the current session.
+		loop.SetInput(inputCh)
+		loop.SetEventChan(eventCh)
+		loop.SetTranscriptWriter(currentSess.Append)
+
+		// Load messages for this session (fixes resume-into-TUI bug).
+		systemMsg := buildSystemMsg(planMode)
+		if hasHistory(currentSess) {
+			msgs, err := app.LoadTranscriptMessages(currentSess)
+			if err == nil && len(msgs) > 0 {
+				loop.LoadMessages(append([]agent.Message{systemMsg}, msgs...))
+			} else {
+				loop.LoadMessages([]agent.Message{systemMsg})
+			}
+		} else {
+			loop.LoadMessages([]agent.Message{systemMsg})
+		}
+
+		// TUI-native approval.
+		var approver *tui.TUIApprover
+		if !autoApprove {
+			approver = tui.NewTUIApprover()
+			loop.SetApprover(approver)
+		}
+
+		// Create the TUI model.
+		model := tui.New(
+			cfg.Model,
+			len(reg.Schemas()),
+			currentSess.ID(),
+			inputCh.Ch,
+			streamWriter.Chan(),
+			eventCh,
+			approver,
+			switchCh,
+			sessionLister,
+			currentSess.CWD(),
+		)
+
+		// Start bubbletea in a goroutine.
+		p := tea.NewProgram(model, tea.WithAltScreen())
+		go func() {
+			if _, err := p.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "vla: tui error: %v\n", err)
+			}
+		}()
+
+		// Run the agent loop (blocking). Output goes to streamWriter.
+		// When the user picks a new session, switchCh fires; we close
+		// inputCh to make loop.Run return, then loop around.
+		loopDone := make(chan error, 1)
+		go func() {
+			loopDone <- loop.Run(nil, streamWriter)
+		}()
+
+		select {
+		case <-loopDone:
+			// Normal exit (Ctrl+C or EOF) — clean up and return.
+			inputCh.Close()
+			watcher.Stop()
+			lspMgr.Close()
+			mcpMgr.Close()
+			return
+
+		case newID := <-switchCh:
+			// Session switch: tear down current loop, open new session.
+			inputCh.Close() // causes loop.Run to return (EOF on input)
+
+			// Open the new session.
+			newSess, err := openSessionByID(newID, cfg.Model)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "vla: could not open session %s: %v\n", newID, err)
+				continue // stay on current session
+			}
+
+			// Record in index.
+			sessionIdx.Record(newSess.ID(), newSess.CWD(), cfg.Model)
+			currentSess = newSess
+			// Loop around to restart with the new session.
+		}
+	}
+}
+
+// buildSystemMsg returns the system prompt message (plan mode or normal).
+func buildSystemMsg(planMode bool) agent.Message {
+	promptText := app.SystemPrompt()
+	if planMode {
+		promptText = app.PlanModePrompt()
+	}
+	return agent.Message{Role: agent.RoleSystem, Content: promptText}
+}
+
+// hasHistory returns true if the session has a non-empty transcript.
+func hasHistory(sess *session.Session) bool {
+	turns, _, err := sess.Read()
+	if err != nil {
+		return false
+	}
+	return len(turns) > 0
+}
+
+// openSessionByID opens a session by its ID from ~/.vla/sessions/<id>.json.
+func openSessionByID(id, model string) (*session.Session, error) {
+	path := filepath.Join(session.SessionsDir(), id+".json")
+	return session.Open(path)
 }

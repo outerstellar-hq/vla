@@ -421,7 +421,10 @@ func newTestModel() Model {
 		make(chan string, 1),
 		make(chan string, 1),
 		make(chan agent.Event, 1),
-		nil,
+		nil,                  // no approver
+		make(chan string, 1), // switchCh
+		nil,                  // no session lister
+		"",                   // no project path
 	)
 	m.width = 80
 	m.height = 24

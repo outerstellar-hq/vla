@@ -60,6 +60,12 @@ type Model struct {
 	diffContent string         // rendered diff text to display
 	diffTitle   string         // header: "write_file — /path/to/file.go"
 
+	// Session picker state.
+	picker        sessionPicker
+	switchCh      chan string   // TUI → runner: session ID to switch to
+	sessionLister SessionLister // loads sessions for the picker
+	projectPath   string        // current project path for filtering sessions
+
 	// Autocomplete.
 	acItems   []string // filtered slash commands
 	acIndex   int      // selected item in autocomplete
@@ -105,9 +111,12 @@ func New(
 	streamCh <-chan string,
 	eventCh <-chan agent.Event,
 	approver *TUIApprover,
+	switchCh chan string,
+	sessionLister SessionLister,
+	projectPath string,
 ) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Send a message... (Ctrl+Enter=submit, Tab=expand, Ctrl+D=diff, Ctrl+F=follow)"
+	ta.Placeholder = "Send a message... (Ctrl+Enter=submit, Tab=expand, Ctrl+D=diff, Ctrl+S=sessions, Ctrl+F=follow)"
 	ta.Focus()
 	ta.CharLimit = 0 // unlimited input
 
@@ -134,6 +143,9 @@ func New(
 		spinner:       sp,
 		slashCommands: knownSlashCommands,
 		statusText:    "idle",
+		switchCh:      switchCh,
+		sessionLister: sessionLister,
+		projectPath:   projectPath,
 	}
 	// Store the approver's channel for polling.
 	if approver != nil {
@@ -218,6 +230,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// If the session picker is visible, intercept navigation keys.
+		if m.picker.visible {
+			switch msg.Type {
+			case tea.KeyEsc:
+				m.picker.close()
+				return m, nil
+			case tea.KeyCtrlS:
+				m.picker.close()
+				return m, nil
+			case tea.KeyUp:
+				m.picker.up()
+				return m, nil
+			case tea.KeyDown:
+				m.picker.down()
+				return m, nil
+			case tea.KeyEnter:
+				sel := m.picker.selected()
+				m.picker.close()
+				if sel != nil && m.switchCh != nil {
+					m.switchCh <- sel.ID
+				}
+				return m, nil
+			}
+			// Other keys are ignored while picker is open.
+			return m, nil
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			m.quitting = true
@@ -261,6 +300,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlD:
 			// Toggle diff pane visibility.
 			m.toggleDiffPane()
+			return m, nil
+
+		case tea.KeyCtrlS:
+			// Toggle session picker.
+			if m.picker.visible {
+				m.picker.close()
+			} else {
+				m.picker.open(m.sessionLister, m.projectPath)
+			}
 			return m, nil
 
 		case tea.KeyEsc:
@@ -377,6 +425,15 @@ func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(m.renderStatusBar())
 	b.WriteString("\n")
+
+	// Session picker overlay replaces the conversation pane when visible.
+	if m.picker.visible {
+		pickerContent := m.picker.render(m.width, m.viewport.Height)
+		b.WriteString(pickerContent)
+		b.WriteString("\n")
+		b.WriteString(inputStyle.Render(m.textarea.View()))
+		return b.String()
+	}
 
 	// Conversation pane — full width or half width when diff pane is visible.
 	convPane := m.viewport.View()
