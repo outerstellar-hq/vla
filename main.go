@@ -46,6 +46,9 @@ func main() {
 		case "version":
 			fmt.Println("vla dev")
 			return
+		case "demo":
+			runDemoCmd(os.Args[2:])
+			return
 		}
 	}
 	runAgent()

@@ -94,24 +94,26 @@ On launch, VLA starts all MCP servers, performs the handshake, and registers the
 
 When launched in a terminal, VLA uses a full-screen bubbletea interface:
 
-```
-┌─────────────────────────────────────────────────────┐
-│ vla │ gpt-4o │ 24 tools │ session 20260703T150000Z  │ ← status bar
-├─────────────────────────────────────────────────────┤
-│ You: Fix the login bug in auth.py                    │
-│                                                      │
-│ VLA: I'll investigate the auth module...▌           │ ← streaming
-│                                                      │
-│ ⚙ [tool read_file → ...file contents...]             │
-│                                                      │
-├─────────────────────────────────────────────────────┤
-│ ╭──────────────────────────────────────────────────╮ │
-│ │ Send a message... (Ctrl+J to submit, Ctrl+C quit)│ │ ← input
-│ ╰──────────────────────────────────────────────────╯ │
-└─────────────────────────────────────────────────────┘
-```
+![VLA TUI — conversation](assets/demo-conversation.png)
 
-- **Ctrl+J**: submit input
+<details>
+<summary>Diff preview (auto-shows on file edits)</summary>
+
+![VLA TUI — diff pane](assets/demo-diff.png)
+</details>
+
+<details>
+<summary>Session switcher (Ctrl+S)</summary>
+
+![VLA TUI — session picker](assets/demo-sessions.png)
+</details>
+
+Key bindings:
+- **Ctrl+Enter** (or **Ctrl+J**): submit input
+- **Tab**: expand/collapse tool call details
+- **Ctrl+D**: toggle split-pane diff preview
+- **Ctrl+S**: open session switcher
+- **Ctrl+F**: toggle auto-scroll follow mode
 - **Ctrl+C**: quit
 - Arrow keys / Page Up/Down: scroll conversation history
 - When stdin is piped (`echo "fix bug" | vla`), falls back to readline/plain mode
