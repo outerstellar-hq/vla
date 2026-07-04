@@ -33,7 +33,7 @@ jobs:
       - name: Install conversion tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq aha wkhtmltopdf
+          sudo apt-get install -y -qq aha wkhtmltopdf optipng
 
       - name: Generate ANSI scenes
         run: ./vla demo --out=assets/

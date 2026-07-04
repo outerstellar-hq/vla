@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Converts .ansi files to .png using aha (ANSI HTML Adapter) + wkhtmltoimage.
+# Converts .ansi files to optimized .png using aha + wkhtmltoimage + optipng.
 # Usage: ansi-to-png.sh file.ansi [file2.ansi ...]
 # Output: file.png (same name, .png extension)
 set -euo pipefail
@@ -17,6 +17,7 @@ for ansi_file in "$@"; do
     aha --black --no-header < "$ansi_file" > "$html_file"
 
     # Wrap in a minimal HTML page with monospace font + dark bg.
+    # Compact sizing: 14px font, minimal padding, tight line-height.
     cat > "$html_file.tmp" << HTMLWRAP
 <!DOCTYPE html>
 <html>
@@ -24,11 +25,11 @@ for ansi_file in "$@"; do
 <style>
   body {
     margin: 0;
-    padding: 16px;
+    padding: 12px;
     background: #0d1117;
     font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.35;
   }
   pre {
     margin: 0;
@@ -44,14 +45,23 @@ for ansi_file in "$@"; do
 HTMLWRAP
     mv "$html_file.tmp" "$html_file"
 
-    # HTML → PNG.
+    # HTML → PNG. Use --quality for JPEG compression within PNG, and
+    # let wkhtmltoimage auto-crop height (--height 0 = no fixed height).
     wkhtmltoimage --quiet \
-        --width 1200 \
-        --height 800 \
-        --quality 90 \
+        --quality 60 \
+        --width 820 \
+        --height 0 \
         --enable-local-file-access \
         "$html_file" "$png_file"
 
+    # Lossless optimization (strips metadata, recompresses).
+    if command -v optipng &>/dev/null; then
+        optipng -quiet -strip all "$png_file"
+    fi
+
     rm -f "$html_file"
-    echo "generated $png_file"
+
+    # Report size.
+    size=$(stat --format=%s "$png_file" 2>/dev/null || stat -f%z "$png_file" 2>/dev/null || echo "?")
+    echo "generated $png_file (${size} bytes)"
 done
