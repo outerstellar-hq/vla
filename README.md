@@ -9,7 +9,13 @@
   Named after the <a href="https://en.wikipedia.org/wiki/Very_Large_Array">Very Large Array</a>: multiple tools working together to see deep into a codebase.
 </p>
 
-**403 deterministic tests. Full-screen TUI with split-pane diff + session switcher. MCP support. LSP integration.**
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/tests-420%20deterministic-green.svg" alt="420 deterministic tests">
+  <img src="https://img.shields.io/badge/Go-1.26-00ADD8.svg" alt="Go 1.26">
+</p>
+
+**420 deterministic tests. Full-screen TUI with split-pane diff + session switcher + animated demo. MCP support. LSP integration.**
 
 ## What makes VLA different
 

@@ -199,4 +199,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 403 tests, all deterministic
+- [x] 420 tests, all deterministic
