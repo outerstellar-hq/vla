@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1200px;
+    background: #0a0a0a;
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #e0e0e0;
+    padding: 40px;
+  }
+
+  .container {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 32px;
+    max-width: 1120px;
+  }
+
+  /* === LEFT SIDEBAR === */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .logo-section {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 4px;
+  }
+
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1a5276, #2E86C1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .logo-text {
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+
+  .tagline {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: #666;
+    margin-top: -16px;
+    margin-bottom: 8px;
+  }
+
+  .description {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #aaa;
+  }
+
+  .description strong {
+    color: #2E86C1;
+  }
+
+  .features {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 16px;
+    margin-top: 8px;
+  }
+
+  .feature {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #999;
+  }
+
+  .feature-icon {
+    width: 16px;
+    text-align: center;
+    font-size: 14px;
+  }
+
+  .security-badge {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .badge {
+    background: #0d1117;
+    border: 1px solid #1a3a5c;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    color: #2E86C1;
+    letter-spacing: 0.5px;
+  }
+
+  .badge.green { color: #238636; border-color: #1a4a26; }
+  .badge.purple { color: #8957e5; border-color: #3a2566; }
+  .badge.orange { color: #d29922; border-color: #4a3a12; }
+
+  .opensource {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  .opensource a {
+    color: #2E86C1;
+    text-decoration: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* === RIGHT PANEL === */
+  .main-panel {
+    background: #0d1117;
+    border: 1px solid #1a2332;
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .terminal-header {
+    background: #161b22;
+    border-bottom: 1px solid #1a2332;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .terminal-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .terminal-dot.red { background: #ff5f56; }
+  .terminal-dot.yellow { background: #ffbd2e; }
+  .terminal-dot.green { background: #27c93f; }
+
+  .terminal-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #666;
+    margin-left: 8px;
+  }
+
+  .terminal-body {
+    padding: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    flex: 1;
+  }
+
+  .prompt { color: #2E86C1; }
+  .flag { color: #d29922; }
+  .string { color: #238636; }
+  .comment { color: #555; font-style: italic; }
+  .tool { color: #8957e5; font-weight: 600; }
+  .status-ok { color: #238636; }
+  .user-msg { color: #58a6ff; }
+  .assistant-msg { color: #e0e0e0; }
+  .dim { color: #666; }
+
+  .key-hints {
+    background: #161b22;
+    border-top: 1px solid #1a2332;
+    padding: 10px 16px;
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .key-hint {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #666;
+  }
+
+  .key {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 9px;
+    color: #aaa;
+  }
+
+  .built-with {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid #1a2332;
+    background: #0a0a0a;
+  }
+
+  .built-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #444;
+  }
+
+  .built-items {
+    display: flex;
+    gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #555;
+  }
+
+  /* === STATS BAR === */
+  .stats-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    padding: 16px 0 0;
+    border-top: 1px solid #1a1a1a;
+    margin-top: 8px;
+  }
+
+  .stat {
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #2E86C1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .stat-value.green { color: #238636; }
+  .stat-value.purple { color: #8957e5; }
+  .stat-value.orange { color: #d29922; }
+
+  .stat-label {
+    font-size: 10px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- LEFT SIDEBAR -->
+  <div class="sidebar">
+    <div>
+      <div class="logo-section">
+        <div class="logo-icon">📡</div>
+        <div class="logo-text">VLA</div>
+      </div>
+      <div class="tagline">Very Large Agent</div>
+    </div>
+
+    <p class="description">
+      A <strong>CLI agentic coding harness</strong> with persistent memory,
+      LSP-backed code intelligence, and a full-screen TUI. Named after the
+      Very Large Array — multiple tools working together to see deep into
+      a codebase.
+    </p>
+
+    <div class="features">
+      <div class="feature"><span class="feature-icon">🖥️</span> Full-screen TUI</div>
+      <div class="feature"><span class="feature-icon">🔧</span> 20+ built-in tools</div>
+      <div class="feature"><span class="feature-icon">🧠</span> Persistent memory</div>
+      <div class="feature"><span class="feature-icon">🔍</span> LSP navigation</div>
+      <div class="feature"><span class="feature-icon">📦</span> MCP support</div>
+      <div class="feature"><span class="feature-icon">📊</span> Diff preview</div>
+      <div class="feature"><span class="feature-icon">⚡</span> Multi-agent</div>
+      <div class="feature"><span class="feature-icon">🔒</span> Sandboxed</div>
+      <div class="feature"><span class="feature-icon">🌐</span> 150+ providers</div>
+      <div class="feature"><span class="feature-icon">📋</span> 9 languages</div>
+      <div class="feature"><span class="feature-icon">🪝</span> Hooks system</div>
+      <div class="feature"><span class="feature-icon">🧩</span> Plugins</div>
+    </div>
+
+    <div class="security-badge">
+      🔒 Path confinement · OS sandbox · Permission rules · Diff approval
+    </div>
+
+    <div class="badges">
+      <span class="badge">CLI FIRST</span>
+      <span class="badge green">GO BINARY</span>
+      <span class="badge purple">MCP READY</span>
+      <span class="badge orange">432 TESTS</span>
+    </div>
+
+    <div class="opensource">
+      <span>⭐ Open Source · MIT License</span>
+      <a href="github.com/outerstellar-hq/vla">github.com/outerstellar-hq/vla</a>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: Terminal -->
+  <div class="main-panel">
+    <div class="terminal-header">
+      <div class="terminal-dot red"></div>
+      <div class="terminal-dot yellow"></div>
+      <div class="terminal-dot green"></div>
+      <span class="terminal-title">vla — session 20260704T120000Z</span>
+    </div>
+
+    <div class="terminal-body">
+<span class="prompt">$</span> <span class="flag">./vla</span> <span class="comment">--model gpt-4o</span>
+<span class="dim">vla: 24 tools registered · indexed 847 files</span>
+<span class="dim">vla: session 20260704T120000Z (cwd /home/dev/project)</span>
+
+<span class="user-msg">You:</span> Fix the login bug in auth.py — users can't log in
+
+<span class="tool">⚙ read_file</span> <span class="dim">(auth.py)</span> <span class="status-ok">✓</span>
+<span class="tool">⚙ search</span> <span class="dim">(query="verify", *.py)</span> <span class="status-ok">✓</span>
+
+<span class="assistant-msg">VLA:</span> Found it! The <span class="string">`verify()`</span> function compares
+<span class="string">`stored_hash`</span> directly instead of the computed hash.
+The bug is on line 14:
+
+  <span class="comment">- return hashlib.md5(password.encode()).hexdigest()</span>
+  <span class="comment">+ return bcrypt.checkpw(password.encode(), stored_hash)</span>
+
+<span class="tool">⚙ update_file</span> <span class="dim">(auth.py)</span> <span class="status-ok">✓</span>
+<span class="dim">  ┌── Diff Preview ───────────────────┐</span>
+<span class="dim">  │ </span><span style="color:#f85149">- def verify(password, stored_hash):</span><span class="dim">     │</span>
+<span class="dim">  │ </span><span style="color:#f85149">-   return hashlib.md5(password...  │</span>
+<span class="dim">  │ </span><span style="color:#238636">+ import bcrypt                       │</span>
+<span class="dim">  │ </span><span style="color:#238636">+ def verify(password, stored_hash): │</span>
+<span class="dim">  │ </span><span style="color:#238636">+   return bcrypt.checkpw(password... │</span>
+<span class="dim">  └────────────────────────────────────┘</span>
+
+<span class="assistant-msg">Done! Fixed the `verify` function — switched from MD5
+to bcrypt. Login flow should work now.</span> <span class="status-ok">✅</span>
+
+<span class="prompt">vla │</span> <span class="dim">gpt-4o │ 24 tools │</span> <span class="tool">▌▌▌ idle</span> <span class="dim">│ 1.5k tok</span>
+    </div>
+
+    <div class="key-hints">
+      <div class="key-hint"><span class="key">⌃↵</span> Submit</div>
+      <div class="key-hint"><span class="key">Tab</span> Expand tool</div>
+      <div class="key-hint"><span class="key">⌃D</span> Diff pane</div>
+      <div class="key-hint"><span class="key">⌃S</span> Sessions</div>
+      <div class="key-hint"><span class="key">⌃F</span> Follow</div>
+    </div>
+
+    <div class="built-with">
+      <span class="built-label">Built with</span>
+      <div class="built-items">
+        <span>Go</span>
+        <span>·</span>
+        <span>Bubbletea</span>
+        <span>·</span>
+        <span>Lipgloss</span>
+        <span>·</span>
+        <span>Glamour</span>
+        <span>·</span>
+        <span>MCP</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS BAR -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-value">432</div>
+      <div class="stat-label">Tests</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value green">20+</div>
+      <div class="stat-label">Tools</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value purple">9</div>
+      <div class="stat-label">Languages</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value orange">150+</div>
+      <div class="stat-label">Providers</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">1</div>
+      <div class="stat-label">Binary</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

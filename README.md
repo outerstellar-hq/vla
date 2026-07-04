@@ -15,6 +15,10 @@
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8.svg" alt="Go 1.26">
 </p>
 
+<p align="center">
+  <img src="assets/overview.png" alt="VLA Overview" width="600">
+</p>
+
 **432 deterministic tests. Full-screen TUI with split-pane diff + session switcher + animated demo. MCP support. LSP integration. OS-level sandbox.**
 
 ## What makes VLA different
