@@ -118,8 +118,8 @@ func TestSpecForLanguage_Clangd_OS(t *testing.T) {
 	if spec.Tool != InstallBrew {
 		t.Errorf("expected brew, got %s", spec.Tool)
 	}
-	if len(spec.LinuxCmd) == 0 || spec.LinuxCmd[1] != "apt" {
-		t.Errorf("expected apt install for Linux: %v", spec.LinuxCmd)
+	if len(spec.LinuxCmd) == 0 || spec.LinuxCmd[0] != "apt-get" {
+		t.Errorf("expected apt-get for Linux: %v", spec.LinuxCmd)
 	}
 	if len(spec.WindowsCmd) == 0 || spec.WindowsCmd[0] != "choco" {
 		t.Errorf("expected choco for Windows: %v", spec.WindowsCmd)
