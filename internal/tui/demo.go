@@ -258,3 +258,187 @@ func StripANSI(s string) string {
 	}
 	return b.String()
 }
+
+// DemoFrame is a single frame in an animated demo sequence.
+type DemoFrame struct {
+	Blocks  []DemoBlock
+	Options DemoOptions
+}
+
+// RenderSingle renders this frame as a complete ANSI-styled TUI view.
+func (f DemoFrame) RenderSingle() string {
+	return RenderDemoFrame(f.Blocks, f.Options)
+}
+
+// RenderDemoSequence takes a list of frames and renders each one as a
+// complete ANSI-styled TUI frame. The result is a slice of ANSI strings
+// suitable for converting to individual PNG frames and stitching into
+// an animated GIF.
+//
+// Each frame should be a progression of the previous (e.g. frame 1 shows
+// the user's message, frame 2 adds the spinner + partial response, frame 3
+// adds a tool call, etc.). The caller is responsible for designing the
+// narrative flow.
+func RenderDemoSequence(frames []DemoFrame) []string {
+	result := make([]string, len(frames))
+	for i, f := range frames {
+		result[i] = RenderDemoFrame(f.Blocks, f.Options)
+	}
+	return result
+}
+
+// DefaultDemoSequence returns a built-in frame sequence that demonstrates
+// a realistic VLA interaction: user asks a question, the agent thinks,
+// streams a response, calls a tool, shows the result, and completes.
+// This is the sequence used by `vla demo --gif`.
+//
+// Each returned frame is designed to display for ~1-2 seconds when
+// stitched into a GIF at 1 fps.
+func DefaultDemoSequence() []DemoFrame {
+	baseOpts := DemoOptions{
+		ModelName: "gpt-4o",
+		SessionID: "20260704T120000Z",
+		ToolCount: 24,
+		Tokens:    0,
+		Width:     100,
+		Height:    28,
+	}
+
+	userMsg := DemoBlock{
+		Type:    "user",
+		Content: "Fix the login bug in auth.py — users can't log in with valid credentials",
+	}
+
+	return []DemoFrame{
+		// Frame 1: User message appears, agent starts thinking.
+		{
+			Blocks: []DemoBlock{userMsg},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = true
+				o.StatusText = "thinking"
+				o.Streaming = "I'll investigate the auth module to find the bug."
+				o.Tokens = 120
+				return o
+			}(),
+		},
+
+		// Frame 2: Agent streams a more complete response.
+		{
+			Blocks: []DemoBlock{userMsg},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = true
+				o.StatusText = "thinking"
+				o.Streaming = "I'll investigate the auth module to find the bug. Let me read the file first."
+				o.Tokens = 240
+				return o
+			}(),
+		},
+
+		// Frame 3: Response complete, tool call starts (read_file running).
+		{
+			Blocks: []DemoBlock{
+				userMsg,
+				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
+				{
+					Type:     "tool",
+					ToolName: "read_file",
+					ToolArgs: `{"path":"auth.py"}`,
+					Status:   "running",
+				},
+			},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = true
+				o.StatusText = "running: read_file"
+				o.Tokens = 380
+				return o
+			}(),
+		},
+
+		// Frame 4: read_file complete, agent analyzes the code.
+		{
+			Blocks: []DemoBlock{
+				userMsg,
+				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
+				{
+					Type:       "tool",
+					ToolName:   "read_file",
+					ToolArgs:   `{"path":"auth.py"}`,
+					ToolResult: "import hashlib\n\ndef login(username, password):\n    user = get_user(username)\n    if user and verify(password, user.hash):\n        return create_session(user)\n    return None\n\ndef verify(password, stored_hash):\n    return hashlib.md5(password.encode()).hexdigest() == stored_hash",
+					Status:     "done",
+				},
+			},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = true
+				o.StatusText = "thinking"
+				o.Streaming = "Found it! The `verify` function compares `stored_hash` directly instead of the computed hash. The bug is on this line:"
+				o.Tokens = 820
+				return o
+			}(),
+		},
+
+		// Frame 5: Agent explains the fix and proposes update_file.
+		{
+			Blocks: []DemoBlock{
+				userMsg,
+				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
+				{
+					Type:       "tool",
+					ToolName:   "read_file",
+					ToolArgs:   `{"path":"auth.py"}`,
+					ToolResult: "(30 lines)",
+					Status:     "done",
+				},
+				{
+					Type:     "tool",
+					ToolName: "update_file",
+					ToolArgs: `{"path":"auth.py"}`,
+					Status:   "running",
+				},
+			},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = true
+				o.StatusText = "running: update_file"
+				o.Tokens = 1150
+				return o
+			}(),
+		},
+
+		// Frame 6: Fix applied, agent summarizes. Idle state.
+		{
+			Blocks: []DemoBlock{
+				userMsg,
+				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
+				{
+					Type:       "tool",
+					ToolName:   "read_file",
+					ToolArgs:   `{"path":"auth.py"}`,
+					ToolResult: "(30 lines)",
+					Status:     "done",
+				},
+				{
+					Type:       "tool",
+					ToolName:   "update_file",
+					ToolArgs:   `{"path":"auth.py"}`,
+					ToolResult: "File updated successfully",
+					Status:     "done",
+				},
+				{
+					Type:    "assistant",
+					Content: "Done! Fixed the `verify` function — it was comparing the raw `stored_hash` instead of the computed hash. The login flow should now work correctly. ✅",
+				},
+			},
+			Options: func() DemoOptions {
+				o := baseOpts
+				o.Spinning = false
+				o.StatusText = "idle"
+				o.Tokens = 1520
+				return o
+			}(),
+		},
+	}
+}

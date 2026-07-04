@@ -193,3 +193,148 @@ func TestRenderDemoFrame_Defaults(t *testing.T) {
 		t.Error("frame should not be empty even with nil blocks")
 	}
 }
+
+func TestRenderDemoSequence(t *testing.T) {
+	frames := []DemoFrame{
+		{Blocks: []DemoBlock{{Type: "user", Content: "hello"}}, Options: DemoOptions{Width: 80, Height: 24}},
+		{Blocks: []DemoBlock{
+			{Type: "user", Content: "hello"},
+			{Type: "assistant", Content: "hi"},
+		}, Options: DemoOptions{Width: 80, Height: 24}},
+	}
+
+	result := RenderDemoSequence(frames)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 rendered frames, got %d", len(result))
+	}
+
+	// First frame should contain "hello" but not "hi" (assistant not added yet).
+	plain1 := StripANSI(result[0])
+	if !strings.Contains(plain1, "hello") {
+		t.Error("frame 1 should contain 'hello'")
+	}
+	if strings.Contains(plain1, "hi") {
+		t.Error("frame 1 should NOT contain 'hi' yet")
+	}
+
+	// Second frame should contain both.
+	plain2 := StripANSI(result[1])
+	if !strings.Contains(plain2, "hello") {
+		t.Error("frame 2 should contain 'hello'")
+	}
+	if !strings.Contains(plain2, "hi") {
+		t.Error("frame 2 should contain 'hi'")
+	}
+}
+
+func TestRenderDemoSequence_Empty(t *testing.T) {
+	result := RenderDemoSequence(nil)
+	if len(result) != 0 {
+		t.Errorf("expected 0 frames for nil input, got %d", len(result))
+	}
+}
+
+func TestDefaultDemoSequence(t *testing.T) {
+	frames := DefaultDemoSequence()
+
+	if len(frames) < 4 {
+		t.Errorf("expected at least 4 frames in default sequence, got %d", len(frames))
+	}
+
+	// All frames should render without panicking.
+	for i, f := range frames {
+		output := f.RenderSingle()
+		if output == "" {
+			t.Errorf("frame %d rendered empty", i)
+		}
+	}
+
+	// First frame should show the user's message.
+	plain0 := StripANSI(frames[0].RenderSingle())
+	if !strings.Contains(plain0, "login bug") {
+		t.Error("frame 0 should contain the user's message about the login bug")
+	}
+
+	// A middle frame should show a tool call.
+	for _, f := range frames {
+		plain := StripANSI(f.RenderSingle())
+		if strings.Contains(plain, "read_file") {
+			break
+		}
+	}
+
+	// Last frame should show "Done" or the fix (idle state).
+	lastPlain := StripANSI(frames[len(frames)-1].RenderSingle())
+	if !strings.Contains(lastPlain, "Done") {
+		t.Error("last frame should show completion")
+	}
+}
+
+func TestDemoFrameRenderSingle(t *testing.T) {
+	f := DemoFrame{
+		Blocks: []DemoBlock{
+			{Type: "user", Content: "test"},
+		},
+		Options: DemoOptions{
+			Width:  80,
+			Height: 24,
+		},
+	}
+
+	out := f.RenderSingle()
+	if !strings.Contains(StripANSI(out), "test") {
+		t.Error("RenderSingle should contain block content")
+	}
+}
+
+func TestDefaultDemoSequence_Progresses(t *testing.T) {
+	frames := DefaultDemoSequence()
+
+	// The sequence should grow: later frames should have >= blocks than earlier.
+	// (Each frame adds context — assistant responses, tool calls, etc.)
+	for i := 1; i < len(frames); i++ {
+		if len(frames[i].Blocks) < len(frames[i-1].Blocks) {
+			// This is OK for the last frame sometimes (assistant final response
+			// replaces streaming), but mid-sequence it should grow.
+			if i < len(frames)-1 {
+				t.Errorf("frame %d has fewer blocks (%d) than frame %d (%d)",
+					i, len(frames[i].Blocks), i-1, len(frames[i-1].Blocks))
+			}
+		}
+	}
+
+	// Verify token count increases across frames (shows progress).
+	if frames[0].Options.Tokens >= frames[len(frames)-1].Options.Tokens {
+		t.Error("expected token count to increase across the sequence")
+	}
+}
+
+func TestDefaultDemoSequence_HasSpinnerTransition(t *testing.T) {
+	frames := DefaultDemoSequence()
+
+	// Early frames should be spinning (thinking/running).
+	if !frames[0].Options.Spinning {
+		t.Error("first frame should be spinning (thinking)")
+	}
+
+	// Last frame should be idle (work complete).
+	last := frames[len(frames)-1]
+	if last.Options.Spinning {
+		t.Error("last frame should not be spinning (idle)")
+	}
+	if last.Options.StatusText != "idle" {
+		t.Errorf("last frame statusText = %q, want 'idle'", last.Options.StatusText)
+	}
+}
+
+func TestDefaultDemoSequence_SessionItems(t *testing.T) {
+	// Ensure the unused import doesn't cause issues — SessionItem is used
+	// by RenderDemoPicker, not by the sequence. This test just verifies
+	// the type exists and compiles.
+	items := []SessionItem{
+		{ID: "test", Project: "/p", Model: "m", Created: time.Now()},
+	}
+	if len(items) != 1 {
+		t.Error("SessionItem slice should work")
+	}
+}

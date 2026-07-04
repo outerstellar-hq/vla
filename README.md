@@ -94,6 +94,11 @@ On launch, VLA starts all MCP servers, performs the handshake, and registers the
 
 When launched in a terminal, VLA uses a full-screen bubbletea interface:
 
+![VLA TUI in action](assets/demo.gif)
+
+<details>
+<summary>Static screenshots</summary>
+
 ![VLA TUI — conversation](assets/demo-conversation.png)
 
 <details>
@@ -106,6 +111,8 @@ When launched in a terminal, VLA uses a full-screen bubbletea interface:
 <summary>Session switcher (Ctrl+S)</summary>
 
 ![VLA TUI — session picker](assets/demo-sessions.png)
+</details>
+
 </details>
 
 Key bindings:

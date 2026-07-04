@@ -18,6 +18,7 @@ func runDemoCmd(args []string) {
 	outDir := fs.String("out", ".", "output directory for .ansi files")
 	width := fs.Int("width", 100, "terminal width")
 	height := fs.Int("height", 30, "terminal height")
+	gifMode := fs.Bool("gif", false, "generate animated GIF frames instead of static scenes")
 	fs.Parse(args)
 
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
@@ -36,6 +37,11 @@ func runDemoCmd(args []string) {
 		StatusText: "idle",
 	}
 
+	if *gifMode {
+		sceneGIF(*outDir)
+		return
+	}
+
 	// Scene 1: Main conversation with tool calls.
 	scene1(opts, *outDir)
 
@@ -46,6 +52,26 @@ func runDemoCmd(args []string) {
 	scene3(opts, *outDir)
 
 	fmt.Fprintf(os.Stderr, "vla demo: wrote 3 scenes to %s\n", *outDir)
+}
+
+// sceneGIF renders the default demo sequence as individual ANSI frames
+// in a frames/ subdirectory. Each frame is numbered (frame-001.ansi,
+// frame-002.ansi, etc.) for ordered GIF assembly.
+func sceneGIF(outDir string) {
+	framesDir := filepath.Join(outDir, "frames")
+	if err := os.MkdirAll(framesDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "vla demo gif: cannot create frames dir: %v\n", err)
+		os.Exit(1)
+	}
+
+	frames := tui.DefaultDemoSequence()
+	for i, frame := range frames {
+		path := filepath.Join(framesDir, fmt.Sprintf("frame-%03d.ansi", i+1))
+		writeAnsi(path, frame.RenderSingle())
+	}
+
+	fmt.Fprintf(os.Stderr, "vla demo gif: wrote %d frames to %s\n", len(frames), framesDir)
+	fmt.Fprintf(os.Stderr, "  convert: bash scripts/frames-to-gif.sh %s assets/demo.gif\n", framesDir)
 }
 
 // scene1 renders a conversation with a user message, an assistant response
