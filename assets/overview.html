@@ -37,17 +37,19 @@
   }
 
   .logo-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, #1a5276, #2E86C1);
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 24px;
-    font-weight: 700;
-    color: #fff;
+  }
+
+  .logo-icon img {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
   }
 
   .logo-text {
@@ -292,7 +294,7 @@
   <div class="sidebar">
     <div>
       <div class="logo-section">
-        <div class="logo-icon"><img src="vla-icon-256.png" width="36" height="36" style="border-radius: 8px;"></div>
+        <div class="logo-icon"><img src="vla-icon-256.png"></div>
         <div class="logo-text">VLA</div>
       </div>
       <div class="tagline">Very Large Agent</div>
