@@ -274,7 +274,7 @@ func SpecForLanguage(lang Language) InstallSpec {
 		return InstallSpec{
 			Tool:       InstallBrew,
 			Command:    []string{"brew", "install", "llvm"},
-			LinuxCmd:   []string{"sudo", "apt", "install", "-y", "clangd"},
+			LinuxCmd:   []string{"apt-get", "install", "-y", "clangd"},
 			WindowsCmd: []string{"choco", "install", "llvm"},
 			Instructions: `clangd (C/C++)
 
