@@ -15,6 +15,8 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,13 +37,14 @@ type Model struct {
 	height   int
 
 	// Status bar state.
-	modelName  string
-	toolCount  int
-	sessionID  string
-	tokens     int // accumulated total tokens from EventUsage
-	spinner    spinner.Model
-	spinning   bool   // true while waiting for LLM or tool
-	statusText string // "thinking", "running: read_file", "idle"
+	modelName    string
+	toolCount    int
+	sessionID    string
+	tokens       int // accumulated total tokens from EventUsage
+	contextLimit int // model's context window (for progress bar)
+	spinner      spinner.Model
+	spinning     bool   // true while waiting for LLM or tool
+	statusText   string // "thinking", "running: read_file", "idle"
 
 	// Channels.
 	inputReady chan string        // TUI → loop: user submits text
@@ -63,6 +66,7 @@ type Model struct {
 	// Session picker state.
 	picker        sessionPicker
 	switchCh      chan string   // TUI → runner: session ID to switch to
+	cancelCh      chan struct{} // TUI → loop: signal to abort stream
 	sessionLister SessionLister // loads sessions for the picker
 	projectPath   string        // current project path for filtering sessions
 
@@ -112,6 +116,7 @@ func New(
 	eventCh <-chan agent.Event,
 	approver *TUIApprover,
 	switchCh chan string,
+	cancelCh chan struct{},
 	sessionLister SessionLister,
 	projectPath string,
 ) Model {
@@ -144,6 +149,7 @@ func New(
 		slashCommands: knownSlashCommands,
 		statusText:    "idle",
 		switchCh:      switchCh,
+		cancelCh:      cancelCh,
 		sessionLister: sessionLister,
 		projectPath:   projectPath,
 	}
@@ -152,6 +158,11 @@ func New(
 		m.approvalsCh = approver.Approvals()
 	}
 	return m
+}
+
+// SetContextLimit sets the model's context window size for the progress bar.
+func (m *Model) SetContextLimit(limit int) {
+	m.contextLimit = limit
 }
 
 // Init implements tea.Model. Starts the channel polling and cursor blink.
@@ -312,6 +323,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case tea.KeyEsc:
+			// Esc during streaming cancels the current response.
+			if m.isStreaming && m.cancelCh != nil {
+				close(m.cancelCh)
+				m.isStreaming = false
+				m.spinning = false
+				m.statusText = "idle"
+				// Flush partial streaming content.
+				if m.streaming.Len() > 0 {
+					m.blocks = append(m.blocks, block{
+						typ:     blockAssistant,
+						content: m.streaming.String() + "\n[interrupted]",
+					})
+					m.streaming.Reset()
+				}
+				m.renderBlocks()
+				return m, nil
+			}
 			if m.diffVisible {
 				m.diffVisible = false
 				m.resizePanes()
@@ -525,9 +553,14 @@ func (m Model) renderStatusBar() string {
 		parts = append(parts, dimStyle.Render("idle"))
 	}
 
-	// Token count.
+	// Token count + context window indicator.
 	if m.tokens > 0 {
 		parts = append(parts, formatTokens(m.tokens))
+		if m.contextLimit > 0 {
+			pct := m.tokens * 100 / m.contextLimit
+			bar := contextBar(pct)
+			parts = append(parts, bar)
+		}
 	}
 
 	// Scroll state.
@@ -554,6 +587,36 @@ func formatTokens(n int) string {
 		return fmt.Sprintf("%d tok", n)
 	}
 	return fmt.Sprintf("%.1fk tok", float64(n)/1000)
+}
+
+// contextBar returns a visual progress bar for context window usage.
+// Green under 50%, yellow 50-80%, red over 80%.
+func contextBar(pct int) string {
+	var bar string
+	// 10 segments, each = 10%.
+	filled := pct / 10
+	if filled > 10 {
+		filled = 10
+	}
+	for i := 0; i < 10; i++ {
+		if i < filled {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+
+	var style lipgloss.Style
+	switch {
+	case pct >= 80:
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("9")) // red
+	case pct >= 50:
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
+	default:
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // green
+	}
+
+	return style.Render(bar) + fmt.Sprintf(" %d%%", pct)
 }
 
 // handleEvent processes one typed event from the agent loop, updating the
@@ -695,25 +758,112 @@ func (m *Model) refreshDiffPane() {
 	}
 }
 
-// shouldShowAutocomplete returns true when the input starts with "/" but
-// hasn't been submitted yet (i.e. the user is typing a slash command).
+// shouldShowAutocomplete returns true when the input starts with "/" (slash
+// commands) or contains "@@path" (file mention autocomplete).
 func (m *Model) shouldShowAutocomplete() bool {
-	val := m.textarea.Value()
-	return strings.HasPrefix(strings.TrimSpace(val), "/")
-}
-
-// updateAutocomplete rebuilds the filtered command list based on current input.
-func (m *Model) updateAutocomplete() {
 	val := strings.TrimSpace(m.textarea.Value())
-	var filtered []string
-	for _, cmd := range m.slashCommands {
-		if strings.HasPrefix(cmd, val) {
-			filtered = append(filtered, cmd)
+	if strings.HasPrefix(val, "/") {
+		return true
+	}
+	// Check for @file mention: @ followed by text.
+	if idx := strings.LastIndex(val, "@"); idx >= 0 {
+		after := val[idx+1:]
+		// No spaces after @ → still typing a path.
+		if !strings.Contains(after, " ") {
+			return true
 		}
 	}
+	return false
+}
+
+// updateAutocomplete rebuilds the filtered item list based on current input.
+// Handles both /slash commands and @file mentions.
+func (m *Model) updateAutocomplete() {
+	val := strings.TrimSpace(m.textarea.Value())
+
+	if strings.HasPrefix(val, "/") {
+		// Slash command autocomplete.
+		var filtered []string
+		for _, cmd := range m.slashCommands {
+			if strings.HasPrefix(cmd, val) {
+				filtered = append(filtered, cmd)
+			}
+		}
+		m.acItems = filtered
+		m.acIndex = 0
+		m.acVisible = len(filtered) > 0 && val != "/"
+		return
+	}
+
+	// @file autocomplete.
+	if idx := strings.LastIndex(val, "@"); idx >= 0 {
+		after := val[idx+1:]
+		if !strings.Contains(after, " ") {
+			m.updateFileAutocomplete(after)
+			return
+		}
+	}
+	m.acVisible = false
+}
+
+// updateFileAutocomplete populates the autocomplete with matching files
+// from the project directory.
+func (m *Model) updateFileAutocomplete(prefix string) {
+	if m.projectPath == "" {
+		m.acVisible = false
+		return
+	}
+
+	// Walk the project directory (max 200 files, skip common noise).
+	files := listFiles(m.projectPath, 200)
+
+	var filtered []string
+	for _, f := range files {
+		// Match by prefix or contains.
+		if prefix == "" || strings.Contains(f, prefix) {
+			filtered = append(filtered, "@"+f)
+		}
+		if len(filtered) >= 20 {
+			break
+		}
+	}
+
 	m.acItems = filtered
 	m.acIndex = 0
-	m.acVisible = len(filtered) > 0 && val != "/"
+	m.acVisible = len(filtered) > 0
+}
+
+// listFiles walks a directory and returns project-relative paths.
+// Skips .git, node_modules, vendor, etc. Max depth limited for speed.
+func listFiles(dir string, max int) []string {
+	var files []string
+	skipDirs := map[string]bool{
+		".git": true, "node_modules": true, "vendor": true,
+		"__pycache__": true, ".vla": true, "dist": true,
+		"build": true, "target": true, ".next": true,
+	}
+
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || len(files) >= max {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
+			name := info.Name()
+			if skipDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		files = append(files, rel)
+		return nil
+	})
+
+	return files
 }
 
 // renderBlocks rebuilds the conversation pane from the block list.

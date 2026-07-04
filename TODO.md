@@ -199,3 +199,68 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
 - [x] 420 tests, all deterministic
+
+---
+
+## v0.3.0 — Competitive Features (vs Claude Code / ZCode)
+
+### P0 — Core UX (users expect these immediately)
+
+### 17. Esc to Cancel Stream
+**What:** Press Esc during LLM streaming to interrupt the current response. The agent stops, keeps partial output, and returns control to the user.
+**Where:** `internal/agent/loop.go` (cancellable context on StreamTo), `internal/tui/model.go` (Esc key binding)
+**Why:** Every chat interface supports this. Without it, users wait for long responses they already know are wrong.
+
+### 18. /undo — Rollback Last Changes
+**What:** Undo the most recent file modifications made by the agent. Keeps a stack of (path, old_content) pairs before each write/update/delete. `/undo` restores the previous state.
+**Where:** `internal/undo/` (new package — change stack), `internal/tools/builtin/` (record before mutation), `internal/commands/` (/undo slash command)
+**Why:** Safety net for bad edits. Currently the only recourse is git stash/reset, which doesn't know which changes the agent made vs the user.
+
+### 19. @file Autocomplete
+**What:** Type `@` in the input to trigger file path autocomplete. Shows matching files from the project, arrow keys to select, Tab/Enter to insert the path.
+**Where:** `internal/tui/model.go` (@-trigger autocomplete, like the existing `/` slash autocomplete)
+**Why:** Users constantly reference files. Typing full paths is error-prone. Claude Code, ZCode, and Cursor all support this.
+
+### 20. Context Window Visualization
+**What:** A visual indicator in the status bar showing how much of the context window is used (e.g. a progress bar or percentage). Changes color as it fills (green → yellow → red).
+**Where:** `internal/tui/model.go` (status bar rendering), `internal/agent/` (expose context usage)
+**Why:** Users need to know when they're running low on context so they can `/compact` or start a new session before the agent loses early context.
+
+### P1 — Important Features
+
+### 21. Session-Wide Diff View
+**What:** A `/diff` slash command that shows all file changes made during the current session as a unified git-style diff. Lets the user review everything before committing.
+**Where:** `internal/commands/` (/diff command), `internal/tools/builtin/git.go` (reuse git diff logic)
+**Why:** The split-pane diff shows one tool call at a time. Users need to see the complete picture of what the agent changed.
+
+### 22. vla init — Project Scaffolding
+**What:** `vla init` creates the `.vla/` directory, generates a `config.json` from the example, creates empty `permissions.json`/`hooks.json`, and runs `vla use` to pick a model.
+**Where:** `init_cmd.go` (new — `vla init` subcommand)
+**Why:** Onboarding friction. New users don't know what files to create. `vla init` sets everything up in one command.
+
+### 23. Project-Level Steering Messages
+**What:** A `.vla/steering.md` file whose contents are prepended to the system prompt for every session in that project. Persists across sessions — unlike `--persona` which is per-invocation.
+**Where:** `internal/app/resume.go` (load steering.md into system prompt), `.vla/steering.md`
+**Why:** ZCode has persistent steering messages. Users want project-specific instructions that survive restarts without passing `--persona` every time.
+
+### 24. File Watcher Notifications
+**What:** When the polling watcher detects file changes, notify the agent that a file it previously read has been modified. The agent can then re-read it before acting on stale data.
+**Where:** `internal/indexer/watcher.go` (already detects changes), `internal/agent/loop.go` (invalidate cached reads)
+**Why:** If the user edits a file in another editor while the agent is working, the agent may act on outdated file contents. This prevents that.
+
+### P2 — Nice to Have
+
+### 25. Image Paste (Multimodal Input)
+**What:** In the TUI, support pasting an image from the clipboard (Ctrl+V) which gets added to the next message as an image_url content part.
+**Where:** `internal/tui/model.go` (paste detection), `internal/agent/message.go` (ContentPart — already supports image_url)
+**Why:** VLA's message types already support multimodal content but there's no way to actually send an image from the TUI.
+
+### 26. Config Hot-Reload
+**What:** Detect changes to `config.json` and `.vla/` files at runtime and apply them without restart.
+**Where:** `internal/config/` (file watcher), `main.go` (reload hook)
+**Why:** Users shouldn't need to quit and restart to change models or permissions.
+
+### 27. Sub-Agent Dispatch from TUI
+**What:** A `/spawn <task>` command that dispatches a sub-agent (via the Coordinator) to work on a task in parallel. The sub-agent's results appear in the conversation when done.
+**Where:** `internal/agent/multi.go` (already exists), `internal/commands/` (/spawn command), `internal/tui/` (progress indicator)
+**Why:** The Coordinator exists but isn't wired to the UI. Users can't leverage parallel agents from the TUI.

@@ -26,6 +26,9 @@ type Context struct {
 	TriggerCompact func()                                 // manually trigger compaction
 	GetUsage       func() (prompt, completion, total int) // token usage
 	GetCost        func() float64                         // accumulated cost in USD
+	UndoFunc       func() (string, error)                 // undo last file change
+	UndoCount      func() int                             // count of undoable changes
+	DiffFunc       func() (string, error)                 // session-wide git diff
 }
 
 // Result is the output of a slash command.
@@ -79,6 +82,12 @@ func Execute(input string, ctx Context) Result {
 
 	case "/cost":
 		return executeCost(ctx)
+
+	case "/undo":
+		return executeUndo(ctx)
+
+	case "/diff":
+		return executeDiff(ctx)
 
 	case "/clear":
 		return Result{Output: "Use Ctrl+C to exit and start a new session.", Handled: true}
@@ -139,6 +148,45 @@ func executeCost(ctx Context) Result {
 		return Result{Output: "Cost tracking not available.", Handled: true}
 	}
 	return Result{Output: strings.Join(lines, "\n"), Handled: true}
+}
+
+func executeUndo(ctx Context) Result {
+	if ctx.UndoFunc == nil {
+		return Result{Output: "Undo not available.", Handled: true}
+	}
+	// Show how many changes are available.
+	if ctx.UndoCount != nil && ctx.UndoCount() == 0 {
+		return Result{Output: "Nothing to undo.", Handled: true}
+	}
+	path, err := ctx.UndoFunc()
+	if err != nil {
+		return Result{Output: fmt.Sprintf("Undo failed: %v", err), Handled: true}
+	}
+	if path == "" {
+		return Result{Output: "Nothing to undo.", Handled: true}
+	}
+	remaining := 0
+	if ctx.UndoCount != nil {
+		remaining = ctx.UndoCount()
+	}
+	return Result{
+		Output:  fmt.Sprintf("Undid change to %s (%d changes remaining)", path, remaining),
+		Handled: true,
+	}
+}
+
+func executeDiff(ctx Context) Result {
+	if ctx.DiffFunc == nil {
+		return Result{Output: "Diff not available.", Handled: true}
+	}
+	diff, err := ctx.DiffFunc()
+	if err != nil {
+		return Result{Output: fmt.Sprintf("Error: %v", err), Handled: true}
+	}
+	if diff == "" {
+		return Result{Output: "No changes detected.", Handled: true}
+	}
+	return Result{Output: diff, Handled: true}
 }
 
 func executeMemory(args []string, ctx Context) Result {

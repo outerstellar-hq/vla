@@ -72,6 +72,13 @@ type UsageProvider interface {
 	UsageSnapshot() Usage
 }
 
+// CancelSetter accepts a cancel channel. If the Streamer also satisfies this
+// interface (as *llm.Client does), the loop can wire the TUI's cancel signal
+// to abort in-flight streaming requests.
+type CancelSetter interface {
+	SetCancelChannel(ch chan struct{})
+}
+
 // Summarizer summarizes a slice of messages into a terse string. Defined
 // here (mirroring compaction.Summarizer) to avoid the agent↔compaction
 // import cycle; the loop receives the real compaction logic via Compactor.
@@ -164,6 +171,15 @@ func (l *Loop) SetCommandHandler(h CommandHandler) {
 // channel is full). Must be called before Run.
 func (l *Loop) SetEventChan(ch chan<- Event) {
 	l.events = ch
+}
+
+// SetCancelChannel wires a cancel signal to the LLM client. When the TUI
+// sends on this channel (or closes it), the in-flight streaming request is
+// aborted. The client must satisfy CancelSetter for this to work.
+func (l *Loop) SetCancelChannel(ch chan struct{}) {
+	if cs, ok := l.client.(CancelSetter); ok {
+		cs.SetCancelChannel(ch)
+	}
 }
 
 // emitUsage checks if the Streamer provides usage data and, if so, emits an
@@ -302,6 +318,18 @@ func (l *Loop) turn(out io.Writer) error {
 
 		msg, err := l.client.StreamTo(view, l.registry.Schemas(), out)
 		if err != nil {
+			// If the stream was cancelled (Esc in TUI), keep whatever partial
+			// content was received and return nil — not an error.
+			if strings.Contains(err.Error(), "context canceled") ||
+				strings.Contains(err.Error(), "operation was canceled") ||
+				strings.Contains(err.Error(), "EOF") {
+				if msg.Content != "" {
+					l.messages = append(l.messages, msg)
+					l.persist(RoleAssistant, msg.Content, msg.ToolCalls, "")
+				}
+				fmt.Fprintf(out, "\n[interrupted]\n")
+				return nil
+			}
 			return err
 		}
 		l.emitUsage()

@@ -47,6 +47,10 @@ func (w WriteFile) Execute(args json.RawMessage) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
 		return fmt.Sprintf("Error: create dirs for %s: %v", in.Path, err), nil
 	}
+	// Record old state for /undo before overwriting.
+	if w.Ctx.UndoStack != nil {
+		_ = w.Ctx.UndoStack.Push(abs)
+	}
 	if err := os.WriteFile(abs, []byte(in.Content), 0644); err != nil {
 		return fmt.Sprintf("Error: write %s: %v", in.Path, err), nil
 	}

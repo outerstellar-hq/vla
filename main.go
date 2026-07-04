@@ -30,6 +30,7 @@ import (
 	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
+	"github.com/abrandt/vla/internal/undo"
 )
 
 // version is set at build time via -ldflags "-X main.version=v0.2.0".
@@ -60,6 +61,9 @@ func main() {
 			return
 		case "lsp":
 			runLspCmd(os.Args[2:])
+			return
+		case "init":
+			runInitCmd(os.Args[2:])
 			return
 		}
 	}
@@ -158,6 +162,7 @@ func runAgent() {
 
 	projectName := func() string { return baseDir }
 	injector := app.NewMemoryInjector(memStore, embedder, projectName)
+	undoStack := undo.NewStack()
 
 	reg := tools.NewRegistry()
 	if err := app.RegisterBuiltins(reg, app.Deps{
@@ -167,6 +172,7 @@ func runAgent() {
 		MemStore:   memStore,
 		Embedder:   embedder,
 		Project:    projectName,
+		UndoStack:  undoStack,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: register tools: %v\n", err)
 		os.Exit(1)
@@ -259,6 +265,15 @@ func runAgent() {
 				u := client.TotalUsage()
 				return float64(u.PromptTokens)*2.5/1e6 + float64(u.CompletionTokens)*10.0/1e6
 			},
+			UndoFunc: func() (string, error) {
+				return undoStack.Undo()
+			},
+			UndoCount: func() int {
+				return undoStack.Len()
+			},
+			DiffFunc: func() (string, error) {
+				return runGitDiff(baseDir)
+			},
 		})
 		return result.Output, result.Handled
 	})
@@ -280,7 +295,7 @@ func runAgent() {
 	}
 
 	// On resume, reload prior messages and prepend the system prompt.
-	promptText := resolvePersona(*personaFlag)
+	promptText := resolvePersona(*personaFlag, baseDir)
 	if *planFlag {
 		promptText = app.PlanModePrompt()
 	}
@@ -314,19 +329,37 @@ func runAgent() {
 	}
 }
 
+// runGitDiff returns the git diff for the current project (unstaged changes).
+func runGitDiff(baseDir string) (string, error) {
+	cmd := exec.Command("git", "diff", "--stat")
+	cmd.Dir = baseDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git diff: %w", err)
+	}
+	return string(out), nil
+}
+
 // resolvePersona returns the system prompt for the given persona.
 // Accepts built-in names ("architect") or a path to a custom .md file.
 // Falls back to the default prompt for empty or unknown personas.
-func resolvePersona(persona string) string {
+// Also prepends a project-level steering message from .vla/steering.md
+// if it exists.
+func resolvePersona(persona, baseDir string) string {
+	var prompt string
 	if persona == "" {
-		return app.SystemPrompt()
+		prompt = app.SystemPrompt()
+	} else if custom := app.LoadPersonaFile(persona); custom != "" {
+		prompt = custom
+	} else {
+		prompt = app.PromptForPersona(persona)
 	}
-	// Try as a file path first.
-	if custom := app.LoadPersonaFile(persona); custom != "" {
-		return custom
+
+	// Prepend steering message if it exists.
+	if steering := app.LoadSteeringMessage(baseDir); steering != "" {
+		return steering + "\n\n" + prompt
 	}
-	// Try as a built-in persona name.
-	return app.PromptForPersona(persona)
+	return prompt
 }
 
 // reexecSandboxed wraps the current VLA process in an OS-level sandbox

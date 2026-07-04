@@ -61,6 +61,11 @@ func (u UpdateFile) Execute(args json.RawMessage) (string, error) {
 		return fmt.Sprintf("Error: read %s: %v", in.Path, err), nil
 	}
 
+	// Record old state for /undo before modifying.
+	if u.Ctx.UndoStack != nil {
+		_ = u.Ctx.UndoStack.Push(abs)
+	}
+
 	count := bytes.Count(data, []byte(in.OldString))
 	if count == 0 {
 		return fmt.Sprintf("Error: old_string not found in %s", in.Path), nil

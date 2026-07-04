@@ -46,6 +46,10 @@ func (d DeleteFile) Execute(args json.RawMessage) (string, error) {
 	if info.IsDir() {
 		return fmt.Sprintf("Error: %s is a directory; delete_file only removes files", in.Path), nil
 	}
+	// Record old state for /undo before deleting.
+	if d.Ctx.UndoStack != nil {
+		_ = d.Ctx.UndoStack.Push(abs)
+	}
 	if err := os.Remove(abs); err != nil {
 		return fmt.Sprintf("Error: remove %s: %v", in.Path, err), nil
 	}

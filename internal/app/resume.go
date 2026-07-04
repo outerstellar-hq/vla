@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/abrandt/vla/internal/agent"
@@ -127,6 +128,19 @@ func LoadPersonaFile(path string) string {
 	if path == "" {
 		return ""
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// LoadSteeringMessage reads a project-level steering message from
+// .vla/steering.md. This content is prepended to the system prompt for
+// every session in the project, providing persistent project-specific
+// instructions that survive across sessions.
+func LoadSteeringMessage(baseDir string) string {
+	path := filepath.Join(baseDir, ".vla", "steering.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

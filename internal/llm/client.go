@@ -7,6 +7,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,7 @@ type Client struct {
 	http       *http.Client
 	usageMu    sync.Mutex
 	totalUsage Usage
+	cancelCh   chan struct{} // if set, closing it aborts in-flight requests
 }
 
 // TotalUsage returns accumulated token usage across all calls.
@@ -45,6 +47,12 @@ func (c *Client) UsageSnapshot() agent.Usage {
 		CompletionTokens: c.totalUsage.CompletionTokens,
 		TotalTokens:      c.totalUsage.TotalTokens,
 	}
+}
+
+// SetCancelChannel sets a channel that, when closed, aborts any in-flight
+// streaming request. Used by the TUI to implement Esc-to-cancel.
+func (c *Client) SetCancelChannel(ch chan struct{}) {
+	c.cancelCh = ch
 }
 
 // NewClient returns a streaming client for the given config. The HTTP client
@@ -147,6 +155,19 @@ func (c *Client) StreamTo(messages []agent.Message, toolDefs []map[string]any, o
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return agent.Message{}, fmt.Errorf("llm: build request: %w", err)
+	}
+	// If a cancel channel is set, wire it to the request context so that
+	// closing it aborts the in-flight HTTP connection.
+	if c.cancelCh != nil {
+		ctx, cancel := context.WithCancel(req.Context())
+		req = req.WithContext(ctx)
+		go func() {
+			select {
+			case <-c.cancelCh:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)

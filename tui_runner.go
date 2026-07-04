@@ -74,14 +74,16 @@ func runTUI(
 		inputCh := tui.NewChannelInput()
 		streamWriter := tui.NewChannelWriter()
 		eventCh := make(chan agent.Event, 64)
+		cancelCh := make(chan struct{})
 
 		// Wire the loop for the current session.
 		loop.SetInput(inputCh)
 		loop.SetEventChan(eventCh)
 		loop.SetTranscriptWriter(currentSess.Append)
+		loop.SetCancelChannel(cancelCh)
 
 		// Load messages for this session (fixes resume-into-TUI bug).
-		systemMsg := buildSystemMsg(planMode, persona)
+		systemMsg := buildSystemMsg(planMode, persona, currentSess.CWD())
 		if hasHistory(currentSess) {
 			msgs, err := app.LoadTranscriptMessages(currentSess)
 			if err == nil && len(msgs) > 0 {
@@ -110,9 +112,11 @@ func runTUI(
 			eventCh,
 			approver,
 			switchCh,
+			cancelCh,
 			sessionLister,
 			currentSess.CWD(),
 		)
+		model.SetContextLimit(cfg.ContextLimit)
 
 		// Start bubbletea in a goroutine.
 		p := tea.NewProgram(model, tea.WithAltScreen())
@@ -159,8 +163,8 @@ func runTUI(
 }
 
 // buildSystemMsg returns the system prompt message (plan mode or persona-based).
-func buildSystemMsg(planMode bool, persona string) agent.Message {
-	promptText := resolvePersona(persona)
+func buildSystemMsg(planMode bool, persona, projectDir string) agent.Message {
+	promptText := resolvePersona(persona, projectDir)
 	if planMode {
 		promptText = app.PlanModePrompt()
 	}

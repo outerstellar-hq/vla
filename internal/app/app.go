@@ -14,6 +14,7 @@ import (
 	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
+	"github.com/abrandt/vla/internal/undo"
 )
 
 // Deps bundles all the shared dependencies that RegisterBuiltins needs.
@@ -26,6 +27,7 @@ type Deps struct {
 	MemStore   *memory.Store
 	Embedder   *memory.EmbeddingClient
 	Project    func() string // resolves current project name from CWD
+	UndoStack  *undo.Stack   // optional; enables /undo for file tools
 }
 
 // ResolveConfigPath finds config.json in priority order:
@@ -59,7 +61,7 @@ func OpenOrCreateSession(resumeID, model string) (*session.Session, error) {
 // its dependencies. To add a tool: implement tools.Tool in its own file under
 // builtin/, then add one line to the slice here.
 func RegisterBuiltins(r *tools.Registry, deps Deps) error {
-	fsCtx := builtin.Ctx{BaseDir: deps.BaseDir}
+	fsCtx := builtin.Ctx{BaseDir: deps.BaseDir, UndoStack: deps.UndoStack}
 	memDeps := builtin.MemoryTools{
 		Store:    deps.MemStore,
 		Embedder: deps.Embedder,
