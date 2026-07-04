@@ -2,7 +2,7 @@
   <img src="assets/vla-icon-256.png" alt="VLA — Very Large Agent" width="200">
 </p>
 
-<h1 align="center">VLA — Very Large Agent</h1>
+<h1 align="center">VLA - Very Large Agent</h1>
 
 <p align="center">
   A CLI-based agentic coding harness with persistent memory and LSP-backed code intelligence.<br>
