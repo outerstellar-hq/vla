@@ -1,3 +1,18 @@
+// Package agent implements VLA's core agent loop: the cycle of reading user
+// input, streaming it to an LLM, executing tool calls the LLM requests, and
+// feeding results back. The loop handles compaction (summarizing old context),
+// persistence (NDJSON transcripts), slash commands, hooks, permissions, and
+// human-in-the-loop approval for destructive tools.
+//
+// The package defines the Streamer, Compactor, ToolApprover, HookRunner,
+// and other interfaces to break import cycles (the llm and compaction
+// packages import agent for Message, so agent cannot import them).
+//
+// Key types:
+//   - Loop: the main agent loop, created once per session
+//   - Message: OpenAI-compatible chat message (role, content, tool calls)
+//   - Event: typed notifications emitted to the TUI (tool start/result, usage)
+//   - Coordinator: parallel sub-agent execution
 package agent
 
 // EventType identifies what kind of structured event the loop is emitting

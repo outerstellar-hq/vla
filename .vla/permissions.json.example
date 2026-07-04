@@ -1,0 +1,14 @@
+{
+  "default": "ask",
+  "rules": {
+    "write_file": "ask",
+    "update_file": "ask",
+    "delete_file": "deny",
+    "git_commit": "ask",
+    "web_search": "allow",
+    "web_read": "allow",
+    "read_file": "allow",
+    "search": "allow",
+    "list_files": "allow"
+  }
+}

@@ -22,16 +22,15 @@ where it goes, and why it matters.
 
 ---
 
-### 3. Sandbox (OS-level file access control)
-**What:** Run tool operations inside an OS-level sandbox that restricts filesystem access beyond what `fsutil.Confine` provides. On macOS use `sandbox-exec`; on Linux use `bwrap` or `landlock`; on Windows use job objects.
-
-**Where:**
-- `internal/sandbox/` — new package with per-OS implementations
-- `main.go` — optionally launch VLA inside a sandbox
-
-**Why:** `fsutil.Confine` is lexical — it prevents `../` escapes in paths but doesn't prevent symlinks from pointing outside the project. An OS-level sandbox is defense-in-depth. Claude Code does this on macOS.
-
-**Note:** Lower priority than diff approval + permissions because path confinement already covers the common case. This is for users who want guarantees.
+### 3. Sandbox (OS-level file access control) — DONE
+- [x] Symlink-safe path confinement (`fsutil.Confine` now resolves symlinks via `EvalSymlinks`)
+- [x] OS-level sandbox via `--sandbox` flag (re-exec pattern)
+- [x] macOS: sandbox-exec (Seatbelt sandbox profile, restricts FS to project dir)
+- [x] Linux: bwrap (bubblewrap user namespaces, read-only system mounts)
+- [x] Windows: not supported (relies on hardened fsutil + user account restrictions)
+- [x] Platform-specific build tags (`//go:build darwin/linux/windows`)
+- [x] 15 fsutil tests (including symlink escape, dir escape, parent symlink, new file in symlinked dir)
+- [x] 6 sandbox tests (mode detection, command construction, arg preservation)
 
 ---
 

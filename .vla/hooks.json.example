@@ -1,0 +1,19 @@
+{
+  "hooks": [
+    {
+      "event": "on_write",
+      "tool": "",
+      "command": "gofmt -w $VLA_FILE 2>/dev/null || true"
+    },
+    {
+      "event": "before_tool",
+      "tool": "git_commit",
+      "command": "test \"$(git branch --show-current 2>/dev/null)\" != \"main\" || (echo 'Error: blocking commit to main branch' && exit 1)"
+    },
+    {
+      "event": "after_tool",
+      "tool": "write_file",
+      "command": "echo \"[$(date -Iseconds)] wrote: $VLA_FILE\" >> .vla/vla.log"
+    }
+  ]
+}

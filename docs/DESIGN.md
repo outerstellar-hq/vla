@@ -2,6 +2,11 @@
 
 ## Design Document & Session Handoff
 
+> **Note:** This document reflects the original design phase (2026-07-02).
+> Many features described here as "future" are now implemented. For the
+> current architecture, see [ARCHITECTURE.md](ARCHITECTURE.md). This document
+> is preserved for design rationale and decision history.
+
 **Date:** 2026-07-02
 **Status:** Design finalized — ready for implementation planning
 **Repository:** `C:\Develop\Claude\projects\weird\vla`

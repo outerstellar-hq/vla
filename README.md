@@ -11,11 +11,11 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/tests-420%20deterministic-green.svg" alt="420 deterministic tests">
+  <img src="https://img.shields.io/badge/tests-432%20deterministic-green.svg" alt="432 deterministic tests">
   <img src="https://img.shields.io/badge/Go-1.26-00ADD8.svg" alt="Go 1.26">
 </p>
 
-**420 deterministic tests. Full-screen TUI with split-pane diff + session switcher + animated demo. MCP support. LSP integration.**
+**432 deterministic tests. Full-screen TUI with split-pane diff + session switcher + animated demo. MCP support. LSP integration. OS-level sandbox.**
 
 ## What makes VLA different
 
@@ -169,10 +169,33 @@ When a language server is installed (gopls for Go, pyright for Python), VLA uses
 
 If no server is available, navigation falls back to the regex-based indexer. The LSP client speaks the base protocol (Content-Length framing) over stdio, with a warm process pool (one server per language + workspace).
 
+## Security
+
+VLA has four layers of defense against unintended file operations:
+
+1. **Path confinement** (`fsutil.Confine`) — every file tool validates paths against the project root. Symlinks are resolved to catch escapes.
+2. **OS-level sandbox** (`--sandbox` flag) — re-executes VLA inside `sandbox-exec` (macOS) or `bwrap` (Linux) with filesystem restricted to the project directory.
+3. **Permission rules** (`.vla/permissions.json`) — allow/deny/ask per tool.
+4. **Diff approval** — destructive tools (`write_file`, `update_file`, `delete_file`, `git_commit`) prompt for y/n/a before executing.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full security model.
+
 ## Testing
 
 ```bash
-go test ./...        # 142 tests, ~10 seconds
+go test ./...        # 432 tests, all deterministic
 ```
 
 All tests are deterministic — no API keys, no real network, no LSP servers required. LLM interactions use `httptest.NewServer`; LSP client tests use `net.Pipe` to simulate a server in-process.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — package layout, agent loop lifecycle, security model
+- [Configuration](docs/CONFIGURATION.md) — config.json, CLI flags, environment variables
+- [TUI Reference](docs/TUI.md) — key bindings, modes, status bar
+- [Permissions](docs/PERMISSIONS.md) — `.vla/permissions.json` allow/deny/ask rules
+- [Hooks](docs/HOOKS.md) — `.vla/hooks.json` event scripts
+- [Plugins](docs/PLUGINS.md) — `.vla/plugins/` custom tools
+- [MCP](docs/MCP.md) — Model Context Protocol server setup
+- [Design Document](docs/DESIGN.md) — original design rationale (historical)
+

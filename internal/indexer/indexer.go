@@ -1,3 +1,15 @@
+// Package indexer implements VLA's background symbol index. It parses source
+// files with language-specific regex parsers to extract symbol definitions
+// (functions, classes, types, variables) and cross-file references. The
+// index is used for the go-to-definition and find-references tools as a
+// fallback when an LSP server is not available.
+//
+// The indexer supports 9 languages: Go, Python, Kotlin, Java, C#, PHP,
+// JavaScript/TypeScript, CSS/SCSS, and HTML. Each language has a Parser
+// implementation in its own file (*_parser.go).
+//
+// The index is built in parallel (4-goroutine worker pool) and updated by
+// a polling watcher that rescans every 5 seconds (stdlib-only, no fsnotify).
 package indexer
 
 import (

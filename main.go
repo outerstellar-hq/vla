@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/abrandt/vla/internal/modelsdev"
 	"github.com/abrandt/vla/internal/permissions"
 	"github.com/abrandt/vla/internal/plugins"
+	"github.com/abrandt/vla/internal/sandbox"
 	"github.com/abrandt/vla/internal/session"
 	"github.com/abrandt/vla/internal/tools"
 	"github.com/abrandt/vla/internal/tools/builtin"
@@ -61,6 +63,7 @@ func runAgent() {
 	configFlag := flag.String("config", "", "path to config.json (default: ./config.json then ~/.vla/config.json)")
 	yesFlag := flag.Bool("yes", false, "auto-approve all tool calls (no confirmation prompts)")
 	planFlag := flag.Bool("plan", false, "plan mode: read-only investigation, no file modifications")
+	sandboxFlag := flag.Bool("sandbox", false, "run inside an OS-level sandbox (macOS: sandbox-exec, Linux: bwrap)")
 	flag.Parse()
 
 	cfgPath := app.ResolveConfigPath(*configFlag)
@@ -92,6 +95,21 @@ func runAgent() {
 
 	// Start the background indexer (regex-based symbol index).
 	baseDir := sess.CWD()
+
+	// OS-level sandbox: if --sandbox is requested and we're not already
+	// sandboxed, re-exec VLA wrapped in sandbox-exec (macOS) or bwrap (Linux).
+	// The child process inherits the restricted filesystem view.
+	if *sandboxFlag && os.Getenv("VLA_SANDBOXED") != "1" {
+		if err := reexecSandboxed(baseDir); err != nil {
+			fmt.Fprintf(os.Stderr, "vla: sandbox: %v\n", err)
+			os.Exit(1)
+		}
+		return // reexecSandboxed replaces the process; never reached.
+	}
+	if os.Getenv("VLA_SANDBOXED") == "1" {
+		fmt.Fprintf(os.Stderr, "vla: running sandboxed (%s)\n", sandbox.Detect())
+	}
+
 	ix := indexer.New(baseDir)
 	if n, err := ix.Build(); err != nil {
 		fmt.Fprintf(os.Stderr, "vla: warn: initial index build failed: %v\n", err)
@@ -281,6 +299,35 @@ func runAgent() {
 		fmt.Fprintf(os.Stderr, "vla: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// reexecSandboxed wraps the current VLA process in an OS-level sandbox
+// (sandbox-exec on macOS, bwrap on Linux) and replaces the current process
+// with the sandboxed child. The child inherits restricted filesystem access.
+// Sets VLA_SANDBOXED=1 so the child knows it's already sandboxed and
+// doesn't try to re-exec again.
+func reexecSandboxed(projectDir string) error {
+	mode := sandbox.Detect()
+	if mode == sandbox.ModeNone {
+		return fmt.Errorf("no sandbox available on this platform (macOS: sandbox-exec, Linux: bwrap)")
+	}
+
+	name, args := sandbox.Command(mode, projectDir, os.Args)
+	fmt.Fprintf(os.Stderr, "vla: starting in sandbox (%s)\n", mode)
+
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), "VLA_SANDBOXED=1")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		return fmt.Errorf("sandbox execution failed: %w", err)
+	}
+	return nil
 }
 
 // runModelsCmd handles `vla models [provider] [filter]`.
