@@ -58,6 +58,9 @@ func main() {
 		case "bug":
 			runBugCmd(os.Args[2:])
 			return
+		case "lsp":
+			runLspCmd(os.Args[2:])
+			return
 		}
 	}
 	runAgent()
@@ -72,6 +75,7 @@ func runAgent() {
 	planFlag := flag.Bool("plan", false, "plan mode: read-only investigation, no file modifications")
 	sandboxFlag := flag.Bool("sandbox", false, "run inside an OS-level sandbox (macOS: sandbox-exec, Linux: bwrap)")
 	personaFlag := flag.String("persona", "", "system prompt persona: 'architect' or path to a .md file")
+	installLSPFlag := flag.Bool("install-lsp", false, "auto-install missing language servers on first use")
 	flag.Parse()
 
 	cfgPath := app.ResolveConfigPath(*configFlag)
@@ -130,6 +134,7 @@ func runAgent() {
 
 	// Start the LSP manager (for real go-to-def, hover, diagnostics).
 	lspMgr := lsp.NewManager(lsp.DefaultSpecs())
+	lspMgr.SetAutoInstall(*installLSPFlag)
 	defer lspMgr.Close()
 
 	// Start MCP servers (external tools from .vla/mcp.json).

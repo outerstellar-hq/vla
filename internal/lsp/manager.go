@@ -86,9 +86,10 @@ func DefaultSpecs() map[Language]ServerSpec {
 // Manager owns a pool of warm LSP processes, one per (language, workspace).
 // It auto-starts servers on first use and restarts crashed ones.
 type Manager struct {
-	specs   map[Language]ServerSpec
-	mu      sync.Mutex
-	clients map[string]*clientHandle // key = "<lang>::<workspace>"
+	specs       map[Language]ServerSpec
+	mu          sync.Mutex
+	clients     map[string]*clientHandle // key = "<lang>::<workspace>"
+	autoInstall bool                     // if true, try installing missing servers
 }
 
 type clientHandle struct {
@@ -103,6 +104,15 @@ func NewManager(specs map[Language]ServerSpec) *Manager {
 		specs:   specs,
 		clients: make(map[string]*clientHandle),
 	}
+}
+
+// SetAutoInstall enables or disables automatic installation of missing
+// language servers. When enabled, the manager will attempt to install
+// a server using its InstallSpec when exec.LookPath fails.
+func (m *Manager) SetAutoInstall(enabled bool) {
+	m.mu.Lock()
+	m.autoInstall = enabled
+	m.mu.Unlock()
 }
 
 // Get returns a Client for the given language + workspace, starting the server
@@ -136,7 +146,21 @@ func (m *Manager) startLocked(lang Language, workspace, key string) (*Client, er
 	// Verify the executable is on PATH.
 	path, err := exec.LookPath(spec.Command)
 	if err != nil {
-		return nil, fmt.Errorf("lsp: %s not found on PATH (install it for LSP features; regex fallback will be used)", spec.Command)
+		// If auto-install is enabled, try installing the server.
+		if m.autoInstall {
+			installSpec := SpecForLanguage(lang)
+			if installSpec.IsAvailable() {
+				if installErr := installSpec.Run(); installErr == nil {
+					// Re-check after install.
+					path, err = exec.LookPath(spec.Command)
+				}
+			}
+		}
+		if err != nil {
+			// Return error with the server's install instructions.
+			installSpec := SpecForLanguage(lang)
+			return nil, fmt.Errorf("lsp: %s not found on PATH\n\n%s", spec.Command, installSpec.Instructions)
+		}
 	}
 
 	rootURI := pathToURI(workspace)
