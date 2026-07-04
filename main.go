@@ -32,6 +32,10 @@ import (
 	"github.com/abrandt/vla/internal/tools/builtin"
 )
 
+// version is set at build time via -ldflags "-X main.version=v0.2.0".
+// Defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
 	// Subcommand routing: "vla models", "vla use <provider/model>", or default (agent loop).
 	if len(os.Args) > 1 {
@@ -46,7 +50,7 @@ func main() {
 			runSessionsCmd(os.Args[2:])
 			return
 		case "version":
-			fmt.Println("vla dev")
+			fmt.Println("vla", version)
 			return
 		case "demo":
 			runDemoCmd(os.Args[2:])

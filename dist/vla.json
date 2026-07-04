@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "description": "CLI agentic coding harness with persistent memory and LSP-backed code intelligence",
+  "homepage": "https://github.com/outerstellar-hq/vla",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/outerstellar-hq/vla/releases/download/v0.2.0/vla-v0.2.0-windows-amd64.zip",
+      "hash": "REPLACE_WITH_ACTUAL_SHA256"
+    },
+    "arm64": {
+      "url": "https://github.com/outerstellar-hq/vla/releases/download/v0.2.0/vla-v0.2.0-windows-arm64.zip",
+      "hash": "REPLACE_WITH_ACTUAL_SHA256"
+    }
+  },
+  "bin": "vla.exe",
+  "checkver": {
+    "url": "https://github.com/outerstellar-hq/vla/releases/latest",
+    "regex": "tag/v([\\d.]+)"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/outerstellar-hq/vla/releases/download/v$version/vla-v$version-windows-amd64.zip"
+      },
+      "arm64": {
+        "url": "https://github.com/outerstellar-hq/vla/releases/download/v$version/vla-v$version-windows-arm64.zip"
+      }
+    }
+  }
+}

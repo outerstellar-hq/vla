@@ -31,26 +31,51 @@
 6. **150+ providers.** Auto-configured via models.dev — `vla use openai/gpt-4o` and you're running.
 7. **Encapsulated tools.** Every tool is a self-contained Go struct in its own file.
 
+## Install
+
+**macOS / Linux (Homebrew):**
+```bash
+brew tap outerstellar-hq/tap
+brew install vla
+```
+
+**Windows (Scoop):**
+```bash
+scoop bucket add outerstellar-hq https://github.com/outerstellar-hq/vla
+scoop install vla
+```
+
+**Go install:**
+```bash
+go install github.com/abrandt/vla@latest
+```
+
+**Build from source:**
+```bash
+git clone https://github.com/outerstellar-hq/vla.git
+cd vla
+go build -o vla .
+```
+
+**Pre-built binaries:** Download from [releases](https://github.com/outerstellar-hq/vla/releases) (macOS, Linux, Windows — amd64 + arm64).
+
 ## Quick start
 
 ```bash
-go build -o vla .
-
 # Option A: Configure with models.dev (auto-discovers 150+ providers)
 export OPENAI_API_KEY=sk-...
-./vla use openai/gpt-4o       # writes config.json automatically
+vla use openai/gpt-4o       # writes config.json automatically
 
 # Option B: Manual config
 cp config.json.example config.json  # edit with your OpenAI-compatible API key
-./vla
 
 # Browse available models
-./vla models                    # list all providers
-./vla models openai             # list OpenAI models
-./vla models anthropic claude   # filter by name
+vla models                    # list all providers
+vla models openai             # list OpenAI models
+vla models anthropic claude   # filter by name
 
 # Run the agent
-./vla
+vla
 ```
 
 ## Built-in tools

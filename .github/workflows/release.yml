@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building $VERSION"
+
+      - name: Run tests
+        run: go test ./... -count=1
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          mkdir -p dist
+
+          # Define target platforms.
+          TARGETS=(
+            "darwin amd64"
+            "darwin arm64"
+            "linux amd64"
+            "linux arm64"
+            "windows amd64"
+            "windows arm64"
+          )
+
+          for target in "${TARGETS[@]}"; do
+            set -- $target
+            GOOS=$1
+            GOARCH=$2
+
+            echo "Building for $GOOS/$GOARCH..."
+
+            if [ "$GOOS" = "windows" ]; then
+              OUTPUT="dist/vla-${VERSION}-${GOOS}-${GOARCH}.exe"
+            else
+              OUTPUT="dist/vla-${VERSION}-${GOOS}-${GOARCH}"
+            fi
+
+            CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$OUTPUT" \
+              .
+
+            # Create archive.
+            if [ "$GOOS" = "windows" ]; then
+              (cd dist && zip "$(basename $OUTPUT .exe).zip" "$(basename $OUTPUT)")
+              rm "$OUTPUT"
+            else
+              tar -czf "${OUTPUT}.tar.gz" -C dist "$(basename $OUTPUT)"
+              rm "$OUTPUT"
+            fi
+          done
+
+          # Generate checksums.
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          ls -la
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
