@@ -49,7 +49,7 @@ jobs:
         run: |
           chmod +x scripts/frames-to-gif.sh
           ./vla demo --gif --out=assets/
-          bash scripts/frames-to-gif.sh assets/frames assets/demo.gif 1200
+          bash scripts/frames-to-gif.sh assets/frames assets/demo.gif 500
 
       - name: Render overview image
         run: |

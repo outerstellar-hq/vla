@@ -237,8 +237,8 @@ func TestRenderDemoSequence_Empty(t *testing.T) {
 func TestDefaultDemoSequence(t *testing.T) {
 	frames := DefaultDemoSequence()
 
-	if len(frames) < 4 {
-		t.Errorf("expected at least 4 frames in default sequence, got %d", len(frames))
+	if len(frames) < 20 {
+		t.Errorf("expected at least 20 frames in default sequence, got %d", len(frames))
 	}
 
 	// All frames should render without panicking.
@@ -249,18 +249,36 @@ func TestDefaultDemoSequence(t *testing.T) {
 		}
 	}
 
-	// First frame should show the user's message.
+	// First frame should show the start of the user typing (at least "F").
 	plain0 := StripANSI(frames[0].RenderSingle())
-	if !strings.Contains(plain0, "login bug") {
-		t.Error("frame 0 should contain the user's message about the login bug")
+	if !strings.Contains(plain0, "You:") {
+		t.Errorf("frame 0 should contain 'You:' label, got: %q", plain0[:demoMin(100, len(plain0))])
 	}
 
-	// A middle frame should show a tool call.
+	// A later frame should show the full user message.
+	foundFull := false
+	for _, f := range frames[:len(frames)/2] {
+		plain := StripANSI(f.RenderSingle())
+		if strings.Contains(plain, "login bug") && strings.Contains(plain, "credentials") {
+			foundFull = true
+			break
+		}
+	}
+	if !foundFull {
+		t.Error("expected a frame to show the full user message")
+	}
+
+	// A frame should show a tool call.
+	foundTool := false
 	for _, f := range frames {
 		plain := StripANSI(f.RenderSingle())
 		if strings.Contains(plain, "read_file") {
+			foundTool = true
 			break
 		}
+	}
+	if !foundTool {
+		t.Error("expected a frame with read_file tool call")
 	}
 
 	// Last frame should show "Done" or the fix (idle state).
@@ -312,9 +330,17 @@ func TestDefaultDemoSequence_Progresses(t *testing.T) {
 func TestDefaultDemoSequence_HasSpinnerTransition(t *testing.T) {
 	frames := DefaultDemoSequence()
 
-	// Early frames should be spinning (thinking/running).
-	if !frames[0].Options.Spinning {
-		t.Error("first frame should be spinning (thinking)")
+	// Early frames type the user message (not spinning). After typing,
+	// the agent starts thinking (spinning). Find a spinning frame.
+	foundSpinning := false
+	for _, f := range frames {
+		if f.Options.Spinning {
+			foundSpinning = true
+			break
+		}
+	}
+	if !foundSpinning {
+		t.Fatal("expected at least one spinning frame in the sequence")
 	}
 
 	// Last frame should be idle (work complete).

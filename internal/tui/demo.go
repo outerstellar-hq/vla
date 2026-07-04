@@ -287,13 +287,17 @@ func RenderDemoSequence(frames []DemoFrame) []string {
 	return result
 }
 
-// DefaultDemoSequence returns a built-in frame sequence that demonstrates
-// a realistic VLA interaction: user asks a question, the agent thinks,
-// streams a response, calls a tool, shows the result, and completes.
-// This is the sequence used by `vla demo --gif`.
+// DefaultDemoSequence returns a frame sequence that demonstrates a realistic
+// VLA interaction with smooth typing and streaming effects. The sequence
+// uses many frames with incremental text reveal for a natural-looking demo.
 //
-// Each returned frame is designed to display for ~1-2 seconds when
-// stitched into a GIF at 1 fps.
+// The narrative: user types a question → agent thinks → streams a response
+// → calls read_file → analyzes → calls update_file → confirms the fix.
+//
+// Frame counts per phase are tuned for ~500ms GIF frame delay:
+//   - Typing: 3 chars/frame (fast typing)
+//   - Streaming: 4 chars/frame (LLM token speed)
+//   - Pauses: 2 frames at phase transitions (tool running, thinking)
 func DefaultDemoSequence() []DemoFrame {
 	baseOpts := DemoOptions{
 		ModelName: "gpt-4o",
@@ -304,141 +308,162 @@ func DefaultDemoSequence() []DemoFrame {
 		Height:    28,
 	}
 
-	userMsg := DemoBlock{
-		Type:    "user",
-		Content: "Fix the login bug in auth.py — users can't log in with valid credentials",
+	userText := "Fix the login bug in auth.py — users can't log in with valid credentials"
+	response1 := "I'll investigate the auth module. Let me read the file first."
+	response2 := "Found it! The `verify` function uses MD5 and compares the wrong value. Let me fix it."
+	response3 := "Done! Switched `verify()` from MD5 to bcrypt. Login flow should work now. ✅"
+
+	readResult := "import hashlib\n\ndef login(username, password):\n    user = get_user(username)\n    if user and verify(password, user.hash):\n        return create_session(user)\n    return None\n\ndef verify(password, stored_hash):\n    return hashlib.md5(password.encode()).hexdigest() == stored_hash"
+
+	var frames []DemoFrame
+	tokens := 0
+	opts := func() DemoOptions { o := baseOpts; o.Tokens = tokens; return o }
+
+	// === PHASE 1: User types their message (typing effect, 3 chars/frame) ===
+	for i := 1; i <= len(userText); i += 3 {
+		frames = append(frames, DemoFrame{
+			Blocks:  []DemoBlock{{Type: "user", Content: userText[:demoMin(i, len(userText))]}},
+			Options: opts(),
+		})
+	}
+	// Full user message + pause (duplicate frame for a beat).
+	fullUser := DemoFrame{Blocks: []DemoBlock{{Type: "user", Content: userText}}, Options: opts()}
+	frames = append(frames, fullUser, fullUser)
+
+	// === PHASE 2: Agent thinking (spinner, brief pause) ===
+	tokens += 80
+	thinkingOpts := func() DemoOptions {
+		o := baseOpts
+		o.Spinning = true
+		o.StatusText = "thinking"
+		o.Tokens = tokens
+		return o
+	}
+	for i := 0; i < 3; i++ {
+		frames = append(frames, DemoFrame{Blocks: []DemoBlock{{Type: "user", Content: userText}}, Options: thinkingOpts()})
 	}
 
-	return []DemoFrame{
-		// Frame 1: User message appears, agent starts thinking.
-		{
-			Blocks: []DemoBlock{userMsg},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = true
-				o.StatusText = "thinking"
-				o.Streaming = "I'll investigate the auth module to find the bug."
-				o.Tokens = 120
-				return o
-			}(),
-		},
-
-		// Frame 2: Agent streams a more complete response.
-		{
-			Blocks: []DemoBlock{userMsg},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = true
-				o.StatusText = "thinking"
-				o.Streaming = "I'll investigate the auth module to find the bug. Let me read the file first."
-				o.Tokens = 240
-				return o
-			}(),
-		},
-
-		// Frame 3: Response complete, tool call starts (read_file running).
-		{
-			Blocks: []DemoBlock{
-				userMsg,
-				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
-				{
-					Type:     "tool",
-					ToolName: "read_file",
-					ToolArgs: `{"path":"auth.py"}`,
-					Status:   "running",
-				},
-			},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = true
-				o.StatusText = "running: read_file"
-				o.Tokens = 380
-				return o
-			}(),
-		},
-
-		// Frame 4: read_file complete, agent analyzes the code.
-		{
-			Blocks: []DemoBlock{
-				userMsg,
-				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
-				{
-					Type:       "tool",
-					ToolName:   "read_file",
-					ToolArgs:   `{"path":"auth.py"}`,
-					ToolResult: "import hashlib\n\ndef login(username, password):\n    user = get_user(username)\n    if user and verify(password, user.hash):\n        return create_session(user)\n    return None\n\ndef verify(password, stored_hash):\n    return hashlib.md5(password.encode()).hexdigest() == stored_hash",
-					Status:     "done",
-				},
-			},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = true
-				o.StatusText = "thinking"
-				o.Streaming = "Found it! The `verify` function compares `stored_hash` directly instead of the computed hash. The bug is on this line:"
-				o.Tokens = 820
-				return o
-			}(),
-		},
-
-		// Frame 5: Agent explains the fix and proposes update_file.
-		{
-			Blocks: []DemoBlock{
-				userMsg,
-				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
-				{
-					Type:       "tool",
-					ToolName:   "read_file",
-					ToolArgs:   `{"path":"auth.py"}`,
-					ToolResult: "(30 lines)",
-					Status:     "done",
-				},
-				{
-					Type:     "tool",
-					ToolName: "update_file",
-					ToolArgs: `{"path":"auth.py"}`,
-					Status:   "running",
-				},
-			},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = true
-				o.StatusText = "running: update_file"
-				o.Tokens = 1150
-				return o
-			}(),
-		},
-
-		// Frame 6: Fix applied, agent summarizes. Idle state.
-		{
-			Blocks: []DemoBlock{
-				userMsg,
-				{Type: "assistant", Content: "I'll investigate the auth module to find the bug. Let me read the file first."},
-				{
-					Type:       "tool",
-					ToolName:   "read_file",
-					ToolArgs:   `{"path":"auth.py"}`,
-					ToolResult: "(30 lines)",
-					Status:     "done",
-				},
-				{
-					Type:       "tool",
-					ToolName:   "update_file",
-					ToolArgs:   `{"path":"auth.py"}`,
-					ToolResult: "File updated successfully",
-					Status:     "done",
-				},
-				{
-					Type:    "assistant",
-					Content: "Done! Fixed the `verify` function — it was comparing the raw `stored_hash` instead of the computed hash. The login flow should now work correctly. ✅",
-				},
-			},
-			Options: func() DemoOptions {
-				o := baseOpts
-				o.Spinning = false
-				o.StatusText = "idle"
-				o.Tokens = 1520
-				return o
-			}(),
-		},
+	// === PHASE 3: Agent streams response1 (token streaming, 4 chars/frame) ===
+	streamOpts := func(text string) DemoOptions { o := thinkingOpts(); o.Streaming = text; return o }
+	for i := 1; i <= len(response1); i += 4 {
+		tokens += 8
+		frames = append(frames, DemoFrame{
+			Blocks:  []DemoBlock{{Type: "user", Content: userText}},
+			Options: streamOpts(response1[:demoMin(i, len(response1))]),
+		})
 	}
+
+	// === PHASE 4: read_file (running pause → done) ===
+	tokens += 120
+	readDone := []DemoBlock{
+		{Type: "user", Content: userText},
+		{Type: "assistant", Content: response1},
+		{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: readResult},
+	}
+	// Running frame (pause).
+	toolRunOpts := func() DemoOptions {
+		o := baseOpts
+		o.Spinning = true
+		o.StatusText = "running: read_file"
+		o.Tokens = tokens
+		return o
+	}
+	readRunning := DemoFrame{
+		Blocks: []DemoBlock{
+			{Type: "user", Content: userText},
+			{Type: "assistant", Content: response1},
+			{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "running"},
+		},
+		Options: toolRunOpts(),
+	}
+	frames = append(frames, readRunning, readRunning)
+	// Done frame.
+	frames = append(frames, DemoFrame{Blocks: readDone, Options: toolRunOpts()})
+
+	// === PHASE 5: Agent streams response2 (analysis) ===
+	readDoneShort := []DemoBlock{
+		{Type: "user", Content: userText},
+		{Type: "assistant", Content: response1},
+		{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "(14 lines)"},
+	}
+	thinkAfterRead := func(text string) DemoOptions {
+		o := baseOpts
+		o.Spinning = true
+		o.StatusText = "thinking"
+		o.Tokens = tokens
+		o.Streaming = text
+		return o
+	}
+	for i := 1; i <= len(response2); i += 4 {
+		tokens += 8
+		frames = append(frames, DemoFrame{Blocks: readDoneShort, Options: thinkAfterRead(response2[:demoMin(i, len(response2))])})
+	}
+
+	// === PHASE 6: update_file (running pause → done) ===
+	tokens += 150
+	updateDone := []DemoBlock{
+		{Type: "user", Content: userText},
+		{Type: "assistant", Content: response1},
+		{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "(14 lines)"},
+		{Type: "assistant", Content: response2},
+		{Type: "tool", ToolName: "update_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "File updated"},
+	}
+	updateRunOpts := func() DemoOptions {
+		o := baseOpts
+		o.Spinning = true
+		o.StatusText = "running: update_file"
+		o.Tokens = tokens
+		return o
+	}
+	updateRunning := DemoFrame{
+		Blocks: []DemoBlock{
+			{Type: "user", Content: userText},
+			{Type: "assistant", Content: response1},
+			{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "(14 lines)"},
+			{Type: "assistant", Content: response2},
+			{Type: "tool", ToolName: "update_file", ToolArgs: `{"path":"auth.py"}`, Status: "running"},
+		},
+		Options: updateRunOpts(),
+	}
+	frames = append(frames, updateRunning, updateRunning)
+	frames = append(frames, DemoFrame{Blocks: updateDone, Options: updateRunOpts()})
+
+	// === PHASE 7: Agent streams response3 (confirmation) ===
+	confirmOpts := func(text string) DemoOptions {
+		o := baseOpts
+		o.Spinning = true
+		o.StatusText = "thinking"
+		o.Tokens = tokens
+		o.Streaming = text
+		return o
+	}
+	for i := 1; i <= len(response3); i += 4 {
+		tokens += 8
+		frames = append(frames, DemoFrame{Blocks: updateDone, Options: confirmOpts(response3[:demoMin(i, len(response3))])})
+	}
+
+	// === PHASE 8: Final idle state (hold for a beat) ===
+	tokens += 100
+	finalBlocks := []DemoBlock{
+		{Type: "user", Content: userText},
+		{Type: "assistant", Content: response1},
+		{Type: "tool", ToolName: "read_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "(14 lines)"},
+		{Type: "assistant", Content: response2},
+		{Type: "tool", ToolName: "update_file", ToolArgs: `{"path":"auth.py"}`, Status: "done", ToolResult: "File updated"},
+		{Type: "assistant", Content: response3},
+	}
+	idleOpts := DemoOptions{ModelName: "gpt-4o", SessionID: "20260704T120000Z", ToolCount: 24, Tokens: tokens, Width: 100, Height: 28, StatusText: "idle"}
+	finalFrame := DemoFrame{Blocks: finalBlocks, Options: idleOpts}
+	for i := 0; i < 5; i++ { // hold the final frame longer
+		frames = append(frames, finalFrame)
+	}
+
+	return frames
+}
+
+func demoMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
