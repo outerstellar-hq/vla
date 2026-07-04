@@ -36,8 +36,14 @@ func (a *ReadlineApprover) Approve(toolName string, args map[string]any, preview
 
 	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
-	answer := strings.TrimSpace(strings.ToLower(line))
 
+	return a.processAnswer(line)
+}
+
+// processAnswer evaluates the user's y/n/a response and updates state.
+// Extracted from Approve for testability (no stdin/stderr dependency).
+func (a *ReadlineApprover) processAnswer(answer string) bool {
+	answer = strings.ToLower(strings.TrimSpace(answer))
 	switch answer {
 	case "y", "yes":
 		return true
@@ -45,7 +51,6 @@ func (a *ReadlineApprover) Approve(toolName string, args map[string]any, preview
 		a.approveAll = true
 		return true
 	default:
-		fmt.Fprintf(os.Stderr, "→ Denied.\n\n")
 		return false
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestIndex_LoadEmpty(t *testing.T) {
@@ -89,6 +90,7 @@ func TestIndex_ListSortedByLastActive(t *testing.T) {
 
 	idx := LoadIndex()
 	idx.Record("old", "/p", "m")
+	time.Sleep(2 * time.Millisecond) // ensure distinct LastActive timestamps
 	idx.Record("newest", "/p", "m")
 
 	list := idx.List()
