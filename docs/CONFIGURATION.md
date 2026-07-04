@@ -76,12 +76,28 @@ All flags are optional. VLA works with zero flags if `config.json` is present.
 | `--plan` | Plan mode: read-only investigation, all write tools blocked |
 | `--sandbox` | Run inside an OS-level sandbox (macOS: sandbox-exec, Linux: bwrap) |
 
+## Subcommands
+
+VLA has several subcommands beyond the default agent mode:
+
+| Command | Description |
+|---------|-------------|
+| `vla` | Start the agent (default — full-screen TUI or readline) |
+| `vla use <provider/model>` | Configure provider via models.dev (writes config.json) |
+| `vla models [provider] [filter]` | Browse available models from models.dev catalog |
+| `vla sessions [--project <path>]` | List sessions, optionally filtered by project |
+| `vla version` | Print the VLA version |
+| `vla demo [--out=DIR] [--gif]` | Generate demo screenshots/GIF (used by CI) |
+| `vla bug --title '...' --body '...'` | Report a bug (creates a GitHub issue) |
+
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `OPENAI_API_KEY` | Fallback API key (if not in config.json) |
 | `OPENAI_BASE_URL` | Fallback base URL |
+| `GITHUB_TOKEN` | GitHub token for `vla bug` (if gh CLI not installed) |
+| `GH_TOKEN` | Alternative GitHub token (same as GITHUB_TOKEN) |
 | `VLA_SANDBOXED` | Set to `1` by the sandbox re-exec (internal) |
 
 ## Project-Level Configuration

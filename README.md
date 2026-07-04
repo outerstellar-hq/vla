@@ -78,6 +78,27 @@ vla models anthropic claude   # filter by name
 vla
 ```
 
+### CLI reference
+
+| Command | Description |
+|---------|-------------|
+| `vla` | Start the agent (full-screen TUI or readline) |
+| `vla use <provider/model>` | Configure provider via models.dev |
+| `vla models [provider] [filter]` | Browse models |
+| `vla sessions [--project <path>]` | List sessions |
+| `vla demo [--gif] [--out=DIR]` | Generate screenshots/GIF |
+| `vla bug --title '...' --body '...'` | Report a bug (creates GitHub issue) |
+| `vla version` | Print version |
+
+| Flag | Description |
+|------|-------------|
+| `--resume <id>` | Resume a session |
+| `--model <name>` | Override config model |
+| `--config <path>` | Path to config.json |
+| `--yes` | Auto-approve all tool calls |
+| `--plan` | Read-only investigation mode |
+| `--sandbox` | OS-level sandbox (macOS/Linux) |
+
 ## Built-in tools
 
 | Tool | Description |

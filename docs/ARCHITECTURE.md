@@ -36,6 +36,7 @@ User → Input (TUI/Readline) → Agent Loop → LLM (streaming)
 ```
 main.go              Entry point + subcommand routing
 demo.go              `vla demo` — screenshot/GIF generation
+bug_report.go        `vla bug` — creates GitHub issues directly
 tui_runner.go        Full-screen TUI launcher (bubbletea)
 input.go             Readline fallback wrapper
 adapters.go          Approval/permission bridge types

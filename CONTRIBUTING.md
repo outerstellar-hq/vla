@@ -97,8 +97,18 @@ Verify your changes render correctly: `./vla demo --out=/tmp/` then inspect the 
 
 ## Reporting Issues
 
-- Bugs: include steps to reproduce, expected vs actual behavior, Go version, OS.
-- Feature requests: explain the use case and expected behavior.
+The fastest way to report a bug:
+
+```bash
+vla bug --title "Short description" --body "What happened, what you expected"
+```
+
+This creates a GitHub issue directly with the `bug` label and your environment info attached. Requires the [GitHub CLI](https://cli.github.com) or a `GITHUB_TOKEN` environment variable.
+
+Alternatively, open an issue manually at [github.com/outerstellar-hq/vla/issues](https://github.com/outerstellar-hq/vla/issues).
+
+- **Bugs:** include steps to reproduce, expected vs actual behavior.
+- **Features:** explain the use case and expected behavior.
 
 ## License
 

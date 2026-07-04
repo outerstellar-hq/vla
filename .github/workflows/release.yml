@@ -37,6 +37,9 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building $VERSION"
 
+      - name: Install ripgrep (for search tool tests)
+        run: sudo apt-get install -y -qq ripgrep
+
       - name: Run tests
         run: go test ./... -count=1
 
