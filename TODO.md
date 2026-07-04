@@ -101,8 +101,7 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Slash command autocomplete (filtered menu on `/` prefix, arrow keys + Enter)
 - [x] Typed event system: `agent.Event` channel (TurnStart/End, ToolStart/Result, Usage, ApprovalReq)
 - [x] Block-based rendering model (replaces flat chatMsg with typed blocks)
-- [x] 48 new deterministic tests (events + TUI model), 387 total
-- [ ] Split-pane diff preview (deferred — needs diff library)
+- [x] Split-pane diff preview — LCS diff engine, auto-shows on write_file/update_file, Ctrl+D toggle, Shift+Up/Down scroll
 - [ ] Session switcher (deferred — needs session list TUI component)
 
 ---
@@ -199,4 +198,4 @@ All 9 languages from the design doc + your additions are implemented:
 - [x] Diff approval system (human-in-the-loop before destructive tools)
 - [x] Permission system (.vla/permissions.json, allow/deny/ask rules)
 - [x] Slash commands (/help, /tools, /memory, /compact, /session)
-- [x] 387 tests, all deterministic
+- [x] 387 tests, all deterministic (+ 20 diff tests = 407 total)

@@ -13,6 +13,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -52,6 +53,12 @@ type Model struct {
 	streaming    strings.Builder // accumulates the current streaming response
 	isStreaming  bool
 	scrollLocked bool // true = auto-follow (GotoBottom on new content)
+
+	// Diff pane state.
+	diffPane    viewport.Model // separate scrollable viewport for diffs
+	diffVisible bool           // whether the split-pane diff is shown
+	diffContent string         // rendered diff text to display
+	diffTitle   string         // header: "write_file — /path/to/file.go"
 
 	// Autocomplete.
 	acItems   []string // filtered slash commands
@@ -100,18 +107,22 @@ func New(
 	approver *TUIApprover,
 ) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Send a message... (Ctrl+Enter to submit, Ctrl+C to quit, Tab to expand tools)"
+	ta.Placeholder = "Send a message... (Ctrl+Enter=submit, Tab=expand, Ctrl+D=diff, Ctrl+F=follow)"
 	ta.Focus()
 	ta.CharLimit = 0 // unlimited input
 
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
 
+	dp := viewport.New(40, 20)
+	dp.SetContent("")
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Pulse
 
 	m := Model{
 		viewport:      vp,
+		diffPane:      dp,
 		textarea:      ta,
 		modelName:     modelName,
 		toolCount:     toolCount,
@@ -157,9 +168,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if convHeight < 3 {
 			convHeight = 3
 		}
-		m.viewport.Width = msg.Width
+		halfW := msg.Width / 2
+		if halfW < 20 {
+			halfW = 20
+		}
 		m.viewport.Height = convHeight
-		m.textarea.SetWidth(msg.Width - 4)
+		m.diffPane.Height = convHeight
+		if m.diffVisible {
+			m.viewport.Width = halfW
+			m.diffPane.Width = halfW
+			m.textarea.SetWidth(msg.Width - 4)
+		} else {
+			m.viewport.Width = msg.Width
+			m.textarea.SetWidth(msg.Width - 4)
+		}
+		m.refreshDiffPane()
 		m.renderBlocks()
 		return m, nil
 
@@ -235,9 +258,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renderBlocks()
 			return m, nil
 
+		case tea.KeyCtrlD:
+			// Toggle diff pane visibility.
+			m.toggleDiffPane()
+			return m, nil
+
 		case tea.KeyEsc:
+			if m.diffVisible {
+				m.diffVisible = false
+				m.resizePanes()
+				m.renderBlocks()
+				return m, nil
+			}
 			m.acVisible = false
 			return m, nil
+
+		case tea.KeyShiftUp:
+			// Scroll diff pane up (when visible).
+			if m.diffVisible {
+				m.diffPane.LineUp(1)
+				return m, nil
+			}
+
+		case tea.KeyShiftDown:
+			// Scroll diff pane down (when visible).
+			if m.diffVisible {
+				m.diffPane.LineDown(1)
+				return m, nil
+			}
 
 		case tea.KeyUp:
 			if m.acVisible && len(m.acItems) > 0 {
@@ -330,8 +378,23 @@ func (m Model) View() string {
 	b.WriteString(m.renderStatusBar())
 	b.WriteString("\n")
 
+	// Conversation pane — full width or half width when diff pane is visible.
 	convPane := m.viewport.View()
-	b.WriteString(convPane)
+	if m.diffVisible {
+		// Split-pane: conversation (left) + diff (right).
+		diffPane := renderDiffPane(m.diffTitle, m.diffContent, m.diffPane.Width, m.viewport.Height)
+		// Apply borders to both panes for visual separation.
+		leftStyled := lipgloss.NewStyle().
+			Width(m.viewport.Width).
+			Render(convPane)
+		rightStyled := lipgloss.NewStyle().
+			Width(m.diffPane.Width).
+			Render(diffPane)
+		joined := lipgloss.JoinHorizontal(lipgloss.Top, leftStyled, rightStyled)
+		b.WriteString(joined)
+	} else {
+		b.WriteString(convPane)
+	}
 	b.WriteString("\n")
 
 	// Approval prompt (above input, below conversation).
@@ -475,6 +538,8 @@ func (m *Model) handleEvent(ev agent.Event) {
 			status:   toolRunning,
 		})
 		m.statusText = "running: " + ev.Tool
+		// Show diff pane for file-modifying tools.
+		m.showDiffForTool(ev.Tool, ev.Args)
 		m.renderBlocks()
 
 	case agent.EventToolResult:
@@ -505,6 +570,71 @@ func (m *Model) handleEvent(ev agent.Event) {
 		if ev.Usage != nil {
 			m.tokens = ev.Usage.TotalTokens
 		}
+	}
+}
+
+// showDiffForTool parses tool args and populates the diff pane for
+// write_file and update_file. Other tools are ignored (the diff pane
+// retains its current state).
+func (m *Model) showDiffForTool(toolName, argsJSON string) {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return
+	}
+	path, _ := args["path"].(string)
+	if path == "" {
+		path = "(unknown)"
+	}
+
+	switch toolName {
+	case "write_file":
+		content, _ := args["content"].(string)
+		m.diffTitle = fmt.Sprintf("write_file — %s", path)
+		m.diffContent = renderDiff(computeDiff("", content), m.diffPane.Width)
+		m.diffVisible = true
+		m.resizePanes()
+		m.refreshDiffPane()
+
+	case "update_file":
+		oldStr, _ := args["old_string"].(string)
+		newStr, _ := args["new_string"].(string)
+		m.diffTitle = fmt.Sprintf("update_file — %s", path)
+		m.diffContent = renderDiff(computeDiff(oldStr, newStr), m.diffPane.Width)
+		m.diffVisible = true
+		m.resizePanes()
+		m.refreshDiffPane()
+	}
+}
+
+// toggleDiffPane flips diff pane visibility and resizes panes accordingly.
+func (m *Model) toggleDiffPane() {
+	m.diffVisible = !m.diffVisible
+	m.resizePanes()
+	m.renderBlocks()
+}
+
+// resizePanes adjusts viewport widths based on whether the diff pane is shown.
+func (m *Model) resizePanes() {
+	if m.width == 0 {
+		return
+	}
+	halfW := m.width / 2
+	if halfW < 20 {
+		halfW = 20
+	}
+	if m.diffVisible {
+		m.viewport.Width = halfW
+		m.diffPane.Width = halfW
+	} else {
+		m.viewport.Width = m.width
+	}
+}
+
+// refreshDiffPane updates the diff viewport content.
+func (m *Model) refreshDiffPane() {
+	m.diffPane.SetContent(m.diffContent)
+	if m.scrollLocked {
+		m.diffPane.GotoBottom()
 	}
 }
 

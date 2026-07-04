@@ -9,7 +9,7 @@
   Named after the <a href="https://en.wikipedia.org/wiki/Very_Large_Array">Very Large Array</a>: multiple tools working together to see deep into a codebase.
 </p>
 
-**387 deterministic tests. Full-screen TUI. MCP support. LSP integration.**
+**407 deterministic tests. Full-screen TUI with split-pane diff. MCP support. LSP integration.**
 
 ## What makes VLA different
 
