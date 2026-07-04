@@ -55,6 +55,9 @@ func main() {
 		case "demo":
 			runDemoCmd(os.Args[2:])
 			return
+		case "bug":
+			runBugCmd(os.Args[2:])
+			return
 		}
 	}
 	runAgent()

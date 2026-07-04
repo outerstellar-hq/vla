@@ -217,6 +217,19 @@ go test ./...        # 432 tests, all deterministic
 
 All tests are deterministic — no API keys, no real network, no LSP servers required. LLM interactions use `httptest.NewServer`; LSP client tests use `net.Pipe` to simulate a server in-process.
 
+## Reporting bugs
+
+```bash
+vla bug --title "Something is broken" --body "Description of the issue"
+```
+
+Or interactively:
+```bash
+vla bug
+```
+
+This creates a GitHub issue directly in [outerstellar-hq/vla](https://github.com/outerstellar-hq/vla/issues) with the `bug` label and your environment info attached. Requires the [GitHub CLI](https://cli.github.com) or a `GITHUB_TOKEN` environment variable.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) — package layout, agent loop lifecycle, security model
