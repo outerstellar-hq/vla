@@ -29,6 +29,8 @@ type Context struct {
 	UndoFunc       func() (string, error)                 // undo last file change
 	UndoCount      func() int                             // count of undoable changes
 	DiffFunc       func() (string, error)                 // session-wide git diff
+	AttachImage    func(path string) (string, error)      // attach image to next message
+	SpawnAgent     func(task string) (string, error)      // dispatch sub-agent for parallel task
 }
 
 // Result is the output of a slash command.
@@ -88,6 +90,12 @@ func Execute(input string, ctx Context) Result {
 
 	case "/diff":
 		return executeDiff(ctx)
+
+	case "/image":
+		return executeImage(ctx, parts)
+
+	case "/spawn":
+		return executeSpawn(ctx, parts)
 
 	case "/clear":
 		return Result{Output: "Use Ctrl+C to exit and start a new session.", Handled: true}
@@ -187,6 +195,36 @@ func executeDiff(ctx Context) Result {
 		return Result{Output: "No changes detected.", Handled: true}
 	}
 	return Result{Output: diff, Handled: true}
+}
+
+func executeImage(ctx Context, args []string) Result {
+	if ctx.AttachImage == nil {
+		return Result{Output: "Image attachment not available.", Handled: true}
+	}
+	if len(args) == 0 {
+		return Result{Output: "Usage: /image <path-to-image>", Handled: true}
+	}
+	path := strings.Join(args, " ")
+	result, err := ctx.AttachImage(path)
+	if err != nil {
+		return Result{Output: fmt.Sprintf("Error: %v", err), Handled: true}
+	}
+	return Result{Output: result, Handled: true}
+}
+
+func executeSpawn(ctx Context, args []string) Result {
+	if ctx.SpawnAgent == nil {
+		return Result{Output: "Sub-agent dispatch not available.", Handled: true}
+	}
+	if len(args) == 0 {
+		return Result{Output: "Usage: /spawn <task description>\n\nDispatches a sub-agent to work on a task in parallel.", Handled: true}
+	}
+	task := strings.Join(args, " ")
+	result, err := ctx.SpawnAgent(task)
+	if err != nil {
+		return Result{Output: fmt.Sprintf("Sub-agent error: %v", err), Handled: true}
+	}
+	return Result{Output: "Sub-agent result:\n" + result, Handled: true}
 }
 
 func executeMemory(args []string, ctx Context) Result {

@@ -2,9 +2,12 @@ package agent
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -92,20 +95,21 @@ type Compactor func(msgs []Message, sum Summarizer, threshold int) ([]Message, e
 // Loop is the VLA agent loop. It is created once per session and run with
 // an InputReader (readline or plain stdin) and an output writer (terminal).
 type Loop struct {
-	client     Streamer
-	registry   *tools.Registry
-	summarizer Summarizer
-	compactor  Compactor
-	injector   ContextInjector       // optional; nil = no context injection
-	writer     TranscriptWriter      // optional; nil = no persistence
-	input      InputReader           // set via SetInput; nil = legacy bufio mode
-	approver   ToolApprover          // optional; nil = no approval checks
-	permCheck  ToolPermissionChecker // optional; nil = no permission checks
-	cmdHandler CommandHandler        // optional; nil = no slash commands
-	hooks      HookRunner            // optional; nil = no hooks
-	events     chan<- Event          // optional; nil = no structured events
-	threshold  int
-	messages   []Message
+	client       Streamer
+	registry     *tools.Registry
+	summarizer   Summarizer
+	compactor    Compactor
+	injector     ContextInjector       // optional; nil = no context injection
+	writer       TranscriptWriter      // optional; nil = no persistence
+	input        InputReader           // set via SetInput; nil = legacy bufio mode
+	approver     ToolApprover          // optional; nil = no approval checks
+	permCheck    ToolPermissionChecker // optional; nil = no permission checks
+	cmdHandler   CommandHandler        // optional; nil = no slash commands
+	hooks        HookRunner            // optional; nil = no hooks
+	pendingImage string                // optional; file path of image to attach to next message
+	events       chan<- Event          // optional; nil = no structured events
+	threshold    int
+	messages     []Message
 }
 
 // NewLoop returns a Loop wired to the given client, tool registry, compactor,
@@ -194,6 +198,12 @@ func (l *Loop) emitUsage() {
 	}
 }
 
+// SetPendingImage sets an image file path to be attached to the next user
+// message as an image_url content part. Used by the /image slash command.
+func (l *Loop) SetPendingImage(path string) {
+	l.pendingImage = path
+}
+
 // LoadMessages restores the in-memory message list from a prior session.
 // Call this before Run to resume a conversation (--resume).
 func (l *Loop) LoadMessages(msgs []Message) {
@@ -253,11 +263,48 @@ func (l *Loop) runReadline(out io.Writer) error {
 			}
 		}
 
-		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})
+		l.messages = append(l.messages, l.newUserMessage(text))
 		l.persist(RoleUser, text, nil, "")
 		if err := l.turn(out); err != nil {
 			return err
 		}
+	}
+}
+
+// newUserMessage creates a user message, attaching a pending image if set.
+func (l *Loop) newUserMessage(text string) Message {
+	msg := Message{Role: RoleUser, Content: text}
+	if l.pendingImage != "" {
+		// Read the image file and encode as data URL.
+		data, err := os.ReadFile(l.pendingImage)
+		if err == nil {
+			mimeType := imageMIME(l.pendingImage)
+			encoded := base64.StdEncoding.EncodeToString(data)
+			msg.ContentParts = []ContentPart{
+				{Type: "text", Text: text},
+				{Type: "image_url", ImageURL: &struct {
+					URL string `json:"url"`
+				}{URL: fmt.Sprintf("data:%s;base64,%s", mimeType, encoded)}},
+			}
+		}
+		l.pendingImage = "" // consumed
+	}
+	return msg
+}
+
+// imageMIME returns the MIME type for an image file based on extension.
+func imageMIME(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/png"
 	}
 }
 
@@ -287,7 +334,7 @@ func (l *Loop) runPlain(in io.Reader, out io.Writer) error {
 			}
 		}
 
-		l.messages = append(l.messages, Message{Role: RoleUser, Content: text})
+		l.messages = append(l.messages, l.newUserMessage(text))
 		l.persist(RoleUser, text, nil, "")
 		if err := l.turn(out); err != nil {
 			return err

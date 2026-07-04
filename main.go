@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -133,6 +134,9 @@ func runAgent() {
 		fmt.Fprintf(os.Stderr, "vla: indexed %d files\n", n)
 	}
 	watcher := indexer.NewWatcher(ix, 5*time.Second)
+	watcher.OnChange(func(relPath, action string) {
+		fmt.Fprintf(os.Stderr, "\nvla: file %s: %s\n", action, relPath)
+	})
 	watcher.Start()
 	defer watcher.Stop()
 
@@ -273,6 +277,30 @@ func runAgent() {
 			},
 			DiffFunc: func() (string, error) {
 				return runGitDiff(baseDir)
+			},
+			AttachImage: func(path string) (string, error) {
+				abs, err := filepath.Abs(path)
+				if err != nil {
+					return "", err
+				}
+				if _, err := os.Stat(abs); err != nil {
+					return "", fmt.Errorf("image not found: %s", path)
+				}
+				loop.SetPendingImage(abs)
+				return fmt.Sprintf("Image attached: %s (will be sent with your next message)", path), nil
+			},
+			SpawnAgent: func(task string) (string, error) {
+				coord := agent.NewCoordinator(client, reg, compaction.Compact, threshold)
+				results := coord.Run([]agent.SubTask{
+					{Name: "spawned task", Prompt: task},
+				}, app.SystemPrompt())
+				if len(results) > 0 && results[0].Error != nil {
+					return "", results[0].Error
+				}
+				if len(results) > 0 {
+					return results[0].Response, nil
+				}
+				return "", nil
 			},
 		})
 		return result.Output, result.Handled

@@ -18,11 +18,20 @@ import (
 //	w := NewWatcher(indexer, 5*time.Second)
 //	w.Start()
 //	defer w.Stop()
+//
+// FileChangeCallback is called when a file is modified, created, or deleted
+// outside the agent (e.g. user edits in another editor). The path is
+// relative to the project root. action is "modified", "created", or "deleted".
+type FileChangeCallback func(relPath, action string)
+
+// Watcher polls the project tree for changes and re-indexes modified files.
+// We use polling (not fsnotify) to stay stdlib-only and cross-platform.
 type Watcher struct {
 	indexer  *Indexer
 	interval time.Duration
 	stop     chan struct{}
 	done     chan struct{}
+	onChange FileChangeCallback // optional; called when a file changes
 
 	mu       sync.Mutex
 	modTimes map[string]time.Time // file path → last known mod time
@@ -38,6 +47,12 @@ func NewWatcher(ix *Indexer, interval time.Duration) *Watcher {
 		done:     make(chan struct{}),
 		modTimes: make(map[string]time.Time),
 	}
+}
+
+// OnChange sets a callback that fires when a file is modified, created,
+// or deleted. Must be called before Start.
+func (w *Watcher) OnChange(cb FileChangeCallback) {
+	w.onChange = cb
 }
 
 // Start begins polling in a background goroutine. Returns immediately.
@@ -122,6 +137,9 @@ func (w *Watcher) scan(initial bool) {
 			w.mu.Unlock()
 			if !initial {
 				_ = w.indexer.ReindexFile(path)
+				if w.onChange != nil {
+					w.onChange(w.indexer.rel(path), "created")
+				}
 			}
 		} else if !mtime.Equal(old) {
 			// Changed file.
@@ -129,6 +147,9 @@ func (w *Watcher) scan(initial bool) {
 			w.modTimes[path] = mtime
 			w.mu.Unlock()
 			_ = w.indexer.ReindexFile(path)
+			if w.onChange != nil {
+				w.onChange(w.indexer.rel(path), "modified")
+			}
 		}
 		return nil
 	})
@@ -140,6 +161,9 @@ func (w *Watcher) scan(initial bool) {
 			delete(w.modTimes, path)
 			rel := w.indexer.rel(path)
 			w.indexer.index.ClearFile(rel)
+			if w.onChange != nil {
+				w.onChange(rel, "deleted")
+			}
 		}
 	}
 	w.mu.Unlock()
