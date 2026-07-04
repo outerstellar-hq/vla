@@ -6,7 +6,15 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
+
+// Force lipgloss to always emit color codes, even when stdout is not a TTY.
+// Without this, the demo output is uncolored plain text.
+func init() {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+}
 
 // DemoBlock is a UI-agnostic description of a conversation block for
 // screenshot and demo rendering. It maps 1:1 to the internal block type.
