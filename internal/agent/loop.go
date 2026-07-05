@@ -107,6 +107,7 @@ type Loop struct {
 	cmdHandler   CommandHandler        // optional; nil = no slash commands
 	hooks        HookRunner            // optional; nil = no hooks
 	pendingImage string                // optional; file path of image to attach to next message
+	sessionID    string                // for error logging
 	events       chan<- Event          // optional; nil = no structured events
 	threshold    int
 	messages     []Message
@@ -196,6 +197,11 @@ func (l *Loop) emitUsage() {
 		u := up.UsageSnapshot()
 		l.emitEvent(Event{Type: EventUsage, Usage: &u})
 	}
+}
+
+// SetSessionID sets the session ID for error logging.
+func (l *Loop) SetSessionID(id string) {
+	l.sessionID = id
 }
 
 // SetPendingImage sets an image file path to be attached to the next user
@@ -387,11 +393,21 @@ func (l *Loop) turn(out io.Writer) error {
 			return nil
 		}
 
+		consecutiveErrors := 0
 		for _, tc := range msg.ToolCalls {
 			l.emitEvent(Event{Type: EventToolStart, Tool: tc.Function.Name, Args: tc.Function.Arguments})
 			result := l.executeToolCall(tc)
 			isError := strings.HasPrefix(result, "Error:")
 			l.emitEvent(Event{Type: EventToolResult, Tool: tc.Function.Name, Result: result, Error: isError})
+
+			// Log errors and track consecutive failures.
+			if isError {
+				consecutiveErrors++
+				LogToolError(l.sessionID, tc.Function.Name, tc.Function.Arguments, result)
+			} else {
+				consecutiveErrors = 0
+			}
+
 			l.messages = append(l.messages, Message{
 				Role:       RoleTool,
 				Content:    result,
@@ -399,6 +415,18 @@ func (l *Loop) turn(out io.Writer) error {
 			})
 			l.persist(RoleTool, result, nil, tc.ID)
 			fmt.Fprintf(out, "[tool %s → %s]\n", tc.Function.Name, truncate(result, 200))
+
+			// Lock: if too many consecutive errors, stop the turn.
+			if consecutiveErrors >= MaxConsecutiveErrors {
+				lockMsg := fmt.Sprintf(
+					"\n[locked: %d consecutive tool errors — returning control to user]\n"+
+						"Last error: %s\n"+
+						"Tool errors are logged to ~/.vla/logs/tool-errors.log\n",
+					consecutiveErrors, truncate(result, 200),
+				)
+				fmt.Fprintf(out, "%s", lockMsg)
+				return nil
+			}
 		}
 	}
 	// Reached MaxTurns — the model is stuck in a tool-call loop. Abort

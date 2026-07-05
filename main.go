@@ -209,6 +209,7 @@ func runAgent() {
 	loop := agent.NewLoop(client, reg, compaction.Compact, summarizer, threshold)
 	loop.SetContextInjector(injector)
 	loop.SetTranscriptWriter(sess.Append)
+	loop.SetSessionID(sess.ID())
 
 	// Permission system: load .vla/permissions.json (deny rules block tools
 	// before they reach the approver).
