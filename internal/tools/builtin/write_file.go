@@ -54,5 +54,13 @@ func (w WriteFile) Execute(args json.RawMessage) (string, error) {
 	if err := os.WriteFile(abs, []byte(in.Content), 0644); err != nil {
 		return fmt.Sprintf("Error: write %s: %v", in.Path, err), nil
 	}
-	return fmt.Sprintf("wrote %d bytes to %s", len(in.Content), in.Path), nil
+	result := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), in.Path)
+
+	// Post-edit check: warn about swallowed errors in the written code.
+	if isSourceCode(in.Path) {
+		warnings := CheckErrorHandling(in.Path, in.Content)
+		result += FormatWarnings(warnings)
+	}
+
+	return result, nil
 }

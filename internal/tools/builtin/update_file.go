@@ -93,7 +93,15 @@ func (u UpdateFile) Execute(args json.RawMessage) (string, error) {
 		summary += " [replace_all]"
 	}
 	// Show a short diff preview.
-	return summary + "\n" + diffPreview(in.OldString, in.NewString), nil
+	result := summary + "\n" + diffPreview(in.OldString, in.NewString)
+
+	// Post-edit check: warn about swallowed errors in the updated code.
+	if isSourceCode(in.Path) {
+		warnings := CheckErrorHandling(in.Path, string(newData))
+		result += FormatWarnings(warnings)
+	}
+
+	return result, nil
 }
 
 // diffPreview returns a terse 3-line preview of the change.
